@@ -1,0 +1,37 @@
+# DigitalOcean Configuration
+region = "nyc3"
+
+# Cluster Configuration
+cluster_name = "elasticsearch"
+environment  = "poc"
+
+# SSH Key - REQUIRED
+# This must match an existing SSH key name in your DigitalOcean account
+ssh_key_name = "your-ssh-key-name"
+
+# Node Configuration
+hot_node_count   = 3
+hot_node_size    = "s-4vcpu-8gb"  # 8GB RAM for hot nodes
+cold_node_size   = "s-1vcpu-2gb"  # 2GB RAM for cold node
+frozen_node_size = "s-1vcpu-2gb"  # 2GB RAM for frozen node
+
+# Elasticsearch Version
+elasticsearch_version = "9.2.0"
+
+# Security Configuration
+# WARNING: This opens access to the entire internet.
+# In production, restrict to specific IP addresses or CIDR blocks
+allowed_ips = ["0.0.0.0/0"]
+
+# Example for restricted access:
+# allowed_ips = [
+#   "203.0.113.0/24",    # Office network
+#   "198.51.100.15/32"   # Specific IP
+# ]
+
+# Spaces Configuration
+# Leave empty to auto-generate name, or specify your own
+spaces_bucket_name = ""
+
+# Monitoring
+enable_monitoring = true

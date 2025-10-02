@@ -1,36 +1,22 @@
 # Product Requirement Prompts
 
-This file contains the requirements for your project. Fill out each section with relevant details before running `/init` in Claude Code. Claude will use this information to generate your initial project structure and implementation.
 
 ## Objective
 
 ```
-# What is the main goal of this project? Be specific and concise.
-# Example: "Build a REST API for managing customer orders with authentication"
+# What is the main goal of this project? Be specific and concise
+Create a Terraform configuration to host a small Elasticsearch cluster on Digital Ocean. 
 
+3 hot nodes (8 GB RAM)
+1 cold node (2 GB RAM)
+1 frozen node (2 GB RAM)
 
-
-```
-
-## What
-
-```
-# Describe what the project should do in detail. List key features and functionality.
-# Example: "- User registration and JWT authentication
-#          - CRUD operations for orders
-#          - Email notifications for order status changes"
-
-
-
-```
-
+The lastest version of Elastic, 9.2, should be used.
 ## Why
 
 ```
 # Explain the business value and problem this solves.
-# Example: "Current manual order processing takes 30 minutes per order. 
-#          This system will reduce processing time to under 2 minutes."
-
+This is to create small PoC self-managed Elasticsearch clusters
 
 
 ```
@@ -39,34 +25,22 @@ This file contains the requirements for your project. Fill out each section with
 
 ```
 # Define measurable success metrics and acceptance criteria.
-# Example: "- All API endpoints respond in <200ms
-#          - 100% test coverage for critical paths
-#          - Handles 1000 concurrent users"
+The Elasticsearch cluster has secure intranet networking setup and has appropriate ports open to the internet. 
 
+A Searchable Snapshot repo is setup and Elastic ILM can writes data to it
 
-
-```
-
-## Context (Optional)
-
-```
-# Add any additional context, constraints, or background information.
-# Example: "Must integrate with existing PostgreSQL database
-#          Deploy to AWS Lambda
-#          Follow company REST API standards"
-
+The cluser follows the zero trust "principle of least privelege". 
 
 
 ```
-
 ## Documentation and references (Optional)
 
 ```
-# List any documentation, APIs, or resources that must be referenced.
-# Include links, file paths, or specific sections to review.
-# Example: "- AWS Lambda docs: https://docs.aws.amazon.com/lambda/
-#          - Company API standards: ./docs/api-standards.md"
+https://www.elastic.co/docs/
 
+https://registry.terraform.io/providers/elastic/elasticstack/latest
+
+https://registry.terraform.io/providers/digitalocean/digitalocean/latest
 
 
 ```
