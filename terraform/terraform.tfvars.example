@@ -1,3 +1,11 @@
+# DigitalOcean API Token
+digitalocean_token = "dop_v1_your_personal_access_token_here"
+
+# DigitalOcean Spaces Credentials (required for object storage / searchable snapshots)
+# Generate these at: https://cloud.digitalocean.com/account/api/spaces
+spaces_access_id  = "your_spaces_access_key_id_here"
+spaces_secret_key = "your_spaces_secret_key_here"
+
 # DigitalOcean Configuration
 region = "nyc3"
 
@@ -5,9 +13,14 @@ region = "nyc3"
 cluster_name = "elasticsearch"
 environment  = "poc"
 
-# SSH Key - REQUIRED
-# This must match an existing SSH key name in your DigitalOcean account
+# SSH Configuration - REQUIRED
+# ssh_key_name must match an existing SSH key name in your DigitalOcean account
 ssh_key_name = "your-ssh-key-name"
+
+# SSH Private Key Path - REQUIRED for air-gapped package upload
+# This is the local path to your SSH private key file
+# Terraform uses this to upload packages to droplets
+ssh_private_key_path = "~/.ssh/id_rsa"
 
 # Node Configuration
 hot_node_count   = 3
@@ -16,18 +29,33 @@ cold_node_size   = "s-1vcpu-2gb"  # 2GB RAM for cold node
 frozen_node_size = "s-1vcpu-2gb"  # 2GB RAM for frozen node
 
 # Elasticsearch Version
-elasticsearch_version = "9.2.0"
+# Using 9.1.5 - latest stable version as of October 2025
+elasticsearch_version = "9.1.5"
 
 # Security Configuration
-# WARNING: This opens access to the entire internet.
-# In production, restrict to specific IP addresses or CIDR blocks
-allowed_ips = ["0.0.0.0/0"]
+# WARNING: Default opens access to the entire internet.
+# IMPORTANT: Restrict to specific IP addresses or CIDR blocks in production
+
+# API Access - who can access Elasticsearch through the load balancer
+allowed_ips = ["0.0.0.0/0"]  # CHANGE THIS IN PRODUCTION
+
+# SSH Access - more restrictive, only for administrators
+# Leave empty to use same as allowed_ips, or specify separate IPs
+allowed_ssh_ips = []
 
 # Example for restricted access:
 # allowed_ips = [
-#   "203.0.113.0/24",    # Office network
-#   "198.51.100.15/32"   # Specific IP
+#   "203.0.113.0/24",    # Office network for API access
+#   "198.51.100.15/32"   # Specific monitoring server
 # ]
+# allowed_ssh_ips = [
+#   "198.51.100.15/32",  # Admin workstation only
+#   "203.0.113.10/32"    # Jump server
+# ]
+
+# SSH Key for esadmin user (optional)
+# If not provided, uses the main SSH key
+esadmin_ssh_public_key = ""
 
 # Spaces Configuration
 # Leave empty to auto-generate name, or specify your own

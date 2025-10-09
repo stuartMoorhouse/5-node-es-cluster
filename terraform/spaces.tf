@@ -6,6 +6,8 @@ locals {
 
 # Spaces bucket for Elasticsearch snapshots
 resource "digitalocean_spaces_bucket" "elasticsearch_snapshots" {
+  count = var.spaces_access_id != "" ? 1 : 0
+
   name   = local.bucket_name
   region = var.region
 
@@ -23,17 +25,18 @@ resource "digitalocean_spaces_bucket" "elasticsearch_snapshots" {
 }
 
 # Spaces access key for Elasticsearch
-resource "digitalocean_spaces_bucket_access_key" "elasticsearch" {
-  spaces_access_key_name = "${local.cluster_name_prefix}-es-access"
+resource "digitalocean_spaces_key" "elasticsearch" {
+  count = var.spaces_access_id != "" ? 1 : 0
 
-  # Grant access to the snapshots bucket
-  bucket_names = [digitalocean_spaces_bucket.elasticsearch_snapshots.name]
+  name = "${local.cluster_name_prefix}-es-access"
 }
 
 # CORS configuration for the bucket (if needed for web access)
 resource "digitalocean_spaces_bucket_cors_configuration" "elasticsearch" {
-  bucket = digitalocean_spaces_bucket.elasticsearch_snapshots.name
-  region = digitalocean_spaces_bucket.elasticsearch_snapshots.region
+  count = var.spaces_access_id != "" ? 1 : 0
+
+  bucket = digitalocean_spaces_bucket.elasticsearch_snapshots[0].name
+  region = digitalocean_spaces_bucket.elasticsearch_snapshots[0].region
 
   cors_rule {
     allowed_headers = ["*"]

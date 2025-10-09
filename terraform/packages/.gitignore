@@ -1,0 +1,8 @@
+# Ignore all DEB packages
+*.deb
+*.deb.*
+
+# Keep README and manifest files
+!README.md
+!MANIFEST.md
+!.gitignore
