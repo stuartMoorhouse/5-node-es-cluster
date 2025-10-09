@@ -100,3 +100,28 @@ variable "enable_monitoring" {
   type        = bool
   default     = true
 }
+
+# Phase 2 Configuration
+variable "enable_phase2" {
+  description = "Enable Phase 2 components (Kibana, EPR, Artifact Registry)"
+  type        = bool
+  default     = false
+}
+
+variable "kibana_node_size" {
+  description = "Droplet size for Kibana (4GB RAM recommended)"
+  type        = string
+  default     = "s-2vcpu-4gb"
+}
+
+variable "epr_node_size" {
+  description = "Droplet size for EPR server (2GB RAM)"
+  type        = string
+  default     = "s-1vcpu-2gb"
+}
+
+variable "artifact_registry_node_size" {
+  description = "Droplet size for Artifact Registry (2GB RAM)"
+  type        = string
+  default     = "s-1vcpu-2gb"
+}

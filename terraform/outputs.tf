@@ -138,3 +138,63 @@ output "security_notes" {
     WARNING: Root SSH access is disabled. Use 'esadmin' user.
   EOT
 }
+# Phase 2 Outputs
+output "kibana_url" {
+  description = "URL to access Kibana web interface"
+  value       = var.enable_phase2 ? "http://${digitalocean_droplet.kibana[0].ipv4_address}:5601" : "Phase 2 not enabled"
+}
+
+output "kibana_ip" {
+  description = "IP address of Kibana server"
+  value       = var.enable_phase2 ? digitalocean_droplet.kibana[0].ipv4_address : "Phase 2 not enabled"
+}
+
+output "epr_url" {
+  description = "Internal URL for Elastic Package Registry"
+  value       = var.enable_phase2 ? "http://${digitalocean_droplet.epr[0].ipv4_address_private}:8443" : "Phase 2 not enabled"
+}
+
+output "epr_ip" {
+  description = "IP address of EPR server"
+  value       = var.enable_phase2 ? digitalocean_droplet.epr[0].ipv4_address : "Phase 2 not enabled"
+}
+
+output "artifact_registry_url" {
+  description = "Internal URL for Artifact Registry"
+  value       = var.enable_phase2 ? "http://${digitalocean_droplet.artifact_registry[0].ipv4_address_private}:9080" : "Phase 2 not enabled"
+}
+
+output "artifact_registry_ip" {
+  description = "IP address of Artifact Registry server"
+  value       = var.enable_phase2 ? digitalocean_droplet.artifact_registry[0].ipv4_address : "Phase 2 not enabled"
+}
+
+output "phase2_notes" {
+  description = "Phase 2 configuration notes"
+  value       = var.enable_phase2 ? <<-EOT
+    ===== PHASE 2 CONFIGURATION =====
+
+    1. Kibana Access:
+       URL: http://${digitalocean_droplet.kibana[0].ipv4_address}:5601
+       Username: elastic
+       Password: <use elasticsearch_password output>
+
+    2. Configure Fleet (after Kibana starts):
+       ssh esadmin@${digitalocean_droplet.kibana[0].ipv4_address}
+       ./configure_fleet.sh <elastic_password>
+
+    3. EPR (Internal Only):
+       URL: http://${digitalocean_droplet.epr[0].ipv4_address_private}:8443
+       Health: http://${digitalocean_droplet.epr[0].ipv4_address_private}:8443/health
+
+    4. Artifact Registry (Internal Only):
+       URL: http://${digitalocean_droplet.artifact_registry[0].ipv4_address_private}:9080
+       Used by Fleet for agent binaries
+
+    5. Add Artifacts:
+       ssh esadmin@${digitalocean_droplet.artifact_registry[0].ipv4_address}
+       See: ~/README_ARTIFACTS.md
+
+    ==================================
+  EOT : "Phase 2 not enabled - set enable_phase2 = true in terraform.tfvars"
+}
