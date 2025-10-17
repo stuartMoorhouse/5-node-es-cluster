@@ -14,26 +14,52 @@ cluster_name = "elasticsearch"
 environment  = "poc"
 
 # SSH Configuration - REQUIRED
-# ssh_key_name must match an existing SSH key name in your DigitalOcean account
-ssh_key_name = "your-ssh-key-name"
+# Provide your SSH public key content. Terraform will create the SSH key in DigitalOcean.
+# Get your public key with: cat ~/.ssh/id_ed25519.pub (or id_rsa.pub)
+ssh_public_key = "ssh-ed25519 AAAAC3... your-email@example.com"
 
-# SSH Private Key Path - REQUIRED for air-gapped package upload
-# This is the local path to your SSH private key file
-# Terraform uses this to upload packages to droplets
-ssh_private_key_path = "~/.ssh/id_rsa"
+# Optional: Custom name for the SSH key in DigitalOcean (defaults to "elasticsearch-cluster-key")
+# ssh_key_name = "my-custom-key-name"
 
-# Node Configuration
-# DEMO/POC (Cost-optimized - ~$2/day):
-hot_node_count   = 2              # Minimum for master quorum
-hot_node_size    = "s-2vcpu-2gb"  # 2GB RAM (~$18/month each)
-cold_node_size   = "s-1vcpu-2gb"  # 2GB RAM (~$12/month)
-frozen_node_size = "s-1vcpu-2gb"  # 2GB RAM (~$12/month)
+# Elasticsearch Node Configuration
+# Define any number of node types with different roles and configurations
 
-# PRODUCTION (Original - ~$5.60/day):
-# hot_node_count   = 3
-# hot_node_size    = "s-4vcpu-8gb"  # 8GB RAM (~$48/month each)
-# cold_node_size   = "s-1vcpu-2gb"  # 2GB RAM (~$12/month)
-# frozen_node_size = "s-1vcpu-2gb"  # 2GB RAM (~$12/month)
+# SINGLE NODE (Minimal demo - ~$18/month):
+elasticsearch_nodes = {
+  hot = {
+    count = 1
+    size  = "s-2vcpu-2gb"
+    roles = ["master", "data_hot", "ingest", "remote_cluster_client"]
+  }
+}
+
+# 3-NODE CLUSTER (Demo/POC - ~$54/month):
+# elasticsearch_nodes = {
+#   hot = {
+#     count = 3
+#     size  = "s-2vcpu-2gb"
+#     roles = ["master", "data_hot", "ingest", "remote_cluster_client"]
+#   }
+# }
+
+# MULTI-TIER CLUSTER (Production - ~$168/month):
+# elasticsearch_nodes = {
+#   hot = {
+#     count = 3
+#     size  = "s-4vcpu-8gb"
+#     roles = ["master", "data_hot", "ingest", "remote_cluster_client"]
+#   }
+#   cold = {
+#     count = 1
+#     size  = "s-1vcpu-2gb"
+#     roles = ["data_cold", "remote_cluster_client"]
+#   }
+#   frozen = {
+#     count = 1
+#     size  = "s-1vcpu-2gb"
+#     roles = ["data_frozen", "remote_cluster_client"]
+#   }
+# }
 
 # Elasticsearch Version
 # Using 9.1.5 - latest stable version as of October 2025
@@ -66,10 +92,6 @@ allowed_ssh_ips = []
 #   "198.51.100.15/32",  # Admin workstation only
 #   "203.0.113.10/32"    # Jump server
 # ]
-
-# SSH Key for esadmin user (optional)
-# If not provided, uses the main SSH key
-esadmin_ssh_public_key = ""
 
 # Spaces Configuration
 # Leave empty to auto-generate name, or specify your own

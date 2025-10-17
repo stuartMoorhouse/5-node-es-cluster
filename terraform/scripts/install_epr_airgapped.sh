@@ -76,10 +76,11 @@ chmod 700 /home/esadmin/.ssh
 chmod 600 /home/esadmin/.ssh/authorized_keys
 
 # Secure SSH
-log "Hardening SSH configuration..."
-sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
-sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
-systemctl restart sshd
+# TEMPORARILY DISABLED FOR DEBUGGING - Re-enable for production
+# log "Hardening SSH configuration..."
+# sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+# sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+# systemctl restart sshd
 
 # Run EPR container
 log "Starting EPR container..."

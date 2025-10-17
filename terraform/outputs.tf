@@ -4,13 +4,13 @@ output "cluster_name" {
 }
 
 output "elasticsearch_urls" {
-  description = "URLs to access Elasticsearch cluster (connect to any hot node)"
-  value       = [for node in digitalocean_droplet.hot_nodes : "https://${node.ipv4_address}:9200"]
+  description = "URLs to access Elasticsearch cluster (all nodes)"
+  value       = [for k, node in digitalocean_droplet.elasticsearch_nodes : "https://${node.ipv4_address}:9200"]
 }
 
 output "primary_elasticsearch_url" {
-  description = "Primary URL for Elasticsearch access (first hot node)"
-  value       = "https://${digitalocean_droplet.hot_nodes[0].ipv4_address}:9200"
+  description = "Primary URL for Elasticsearch access (first node)"
+  value       = length(digitalocean_droplet.elasticsearch_nodes) > 0 ? "https://${values(digitalocean_droplet.elasticsearch_nodes)[0].ipv4_address}:9200" : "No nodes configured"
 }
 
 output "elasticsearch_password" {
@@ -37,28 +37,32 @@ output "admin_password" {
   sensitive   = true
 }
 
-output "hot_node_ips" {
-  description = "IP addresses of hot nodes"
+output "elasticsearch_node_ips" {
+  description = "IP addresses of all Elasticsearch nodes by node name"
   value = {
-    public  = digitalocean_droplet.hot_nodes[*].ipv4_address
-    private = digitalocean_droplet.hot_nodes[*].ipv4_address_private
+    for k, node in digitalocean_droplet.elasticsearch_nodes :
+    k => {
+      public  = node.ipv4_address
+      private = node.ipv4_address_private
+      roles   = local.es_nodes_flat[k].roles
+    }
   }
 }
 
-output "cold_node_ip" {
-  description = "IP address of cold node (if enabled)"
-  value = var.enable_cold_tier ? {
-    public  = digitalocean_droplet.cold_node[0].ipv4_address
-    private = digitalocean_droplet.cold_node[0].ipv4_address_private
-  } : null
-}
-
-output "frozen_node_ip" {
-  description = "IP address of frozen node (if enabled)"
-  value = var.enable_frozen_tier ? {
-    public  = digitalocean_droplet.frozen_node[0].ipv4_address
-    private = digitalocean_droplet.frozen_node[0].ipv4_address_private
-  } : null
+output "elasticsearch_nodes_by_type" {
+  description = "Elasticsearch nodes grouped by type"
+  value = {
+    for node_type in distinct([for k, v in local.es_nodes_flat : v.node_type]) :
+    node_type => [
+      for k, node in digitalocean_droplet.elasticsearch_nodes :
+      {
+        name    = k
+        public  = node.ipv4_address
+        private = node.ipv4_address_private
+      }
+      if local.es_nodes_flat[k].node_type == node_type
+    ]
+  }
 }
 
 output "spaces_bucket_name" {
@@ -83,19 +87,12 @@ output "spaces_secret_key" {
   sensitive   = true
 }
 
-output "ssh_command_hot_nodes" {
-  description = "SSH commands to connect to hot nodes (use esadmin user)"
-  value       = [for i, ip in digitalocean_droplet.hot_nodes[*].ipv4_address : "ssh esadmin@${ip}"]
-}
-
-output "ssh_command_cold_node" {
-  description = "SSH command to connect to cold node (use esadmin user, if enabled)"
-  value       = var.enable_cold_tier ? "ssh esadmin@${digitalocean_droplet.cold_node[0].ipv4_address}" : "Not deployed (enable_cold_tier = false)"
-}
-
-output "ssh_command_frozen_node" {
-  description = "SSH command to connect to frozen node (use esadmin user, if enabled)"
-  value       = var.enable_frozen_tier ? "ssh esadmin@${digitalocean_droplet.frozen_node[0].ipv4_address}" : "Not deployed (enable_frozen_tier = false)"
+output "ssh_commands" {
+  description = "SSH commands to connect to all Elasticsearch nodes (use esadmin user)"
+  value = {
+    for k, node in digitalocean_droplet.elasticsearch_nodes :
+    k => "ssh esadmin@${node.ipv4_address}"
+  }
 }
 
 output "security_notes" {
@@ -104,9 +101,9 @@ output "security_notes" {
     === SECURITY CONFIGURATION COMPLETE ===
 
     Cluster Access:
-    - NO LOAD BALANCER: Connect directly to any hot node
+    - NO LOAD BALANCER: Connect directly to any node
     - Elasticsearch handles load balancing internally
-    - Hot nodes act as coordinators and route requests
+    - Master-eligible nodes act as coordinators and route requests
     - Configure clients with multiple node URLs for HA
 
     Users Created:
@@ -125,8 +122,8 @@ output "security_notes" {
     - Certificate-based node authentication
 
     Client Configuration:
-    Configure your Elasticsearch clients with all hot node URLs:
-    ${join("\n    ", [for node in digitalocean_droplet.hot_nodes : "- https://${node.ipv4_address}:9200"])}
+    Configure your Elasticsearch clients with all node URLs:
+    ${join("\n    ", [for k, node in digitalocean_droplet.elasticsearch_nodes : "- https://${node.ipv4_address}:9200"])}
 
     Next Steps:
     1. Retrieve passwords with: terraform output -raw <user>_password
@@ -230,7 +227,7 @@ output "cribl_stream_notes" {
     "   - Raw TCP: 10001\n",
     "   - S3: 10200 (internal)\n\n",
     "5. Elasticsearch Connection:\n",
-    "   - Destination URL: ${digitalocean_droplet.hot_nodes[0].ipv4_address_private}:9200\n",
+    "   - Destination URL: ${values(digitalocean_droplet.elasticsearch_nodes)[0].ipv4_address_private}:9200\n",
     "   - Username: ingest\n",
     "   - Password: <use ingest_password output>\n\n",
     "Note: Configure routes and pipelines via Cribl UI\n",

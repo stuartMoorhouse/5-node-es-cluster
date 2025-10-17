@@ -42,48 +42,53 @@ variable "elasticsearch_version" {
   default     = "9.1.5" # Latest stable version
 }
 
-variable "hot_node_count" {
-  description = "Number of hot data nodes (minimum 1 for single-node demo, 2+ recommended for production quorum)"
-  type        = number
-  default     = 1  # Minimal for demo - use 3 for production
+# Flexible node configuration - define any number of node types
+variable "elasticsearch_nodes" {
+  description = "Map of Elasticsearch node configurations. Key = node type name, Value = {count, size, roles}"
+  type = map(object({
+    count = number       # Number of nodes of this type (0 to disable)
+    size  = string       # DigitalOcean droplet size
+    roles = list(string) # Elasticsearch node roles
+  }))
+
+  default = {
+    hot = {
+      count = 1
+      size  = "s-2vcpu-2gb"
+      roles = ["master", "data_hot", "ingest", "remote_cluster_client"]
+    }
+    cold = {
+      count = 0
+      size  = "s-1vcpu-2gb"
+      roles = ["data_cold", "remote_cluster_client"]
+    }
+    frozen = {
+      count = 0
+      size  = "s-1vcpu-2gb"
+      roles = ["data_frozen", "remote_cluster_client"]
+    }
+  }
 
   validation {
-    condition     = var.hot_node_count >= 1 && var.hot_node_count <= 10
-    error_message = "hot_node_count must be between 1 and 10"
+    condition     = alltrue([for k, v in var.elasticsearch_nodes : v.count >= 0 && v.count <= 10])
+    error_message = "Each node type count must be between 0 and 10"
+  }
+
+  validation {
+    condition     = sum([for k, v in var.elasticsearch_nodes : v.count]) >= 1
+    error_message = "Must have at least 1 Elasticsearch node configured"
   }
 }
 
-variable "hot_node_size" {
-  description = "Droplet size for hot nodes - Production: s-4vcpu-8gb, Demo: s-2vcpu-2gb, Minimal: s-1vcpu-2gb"
+variable "ssh_public_key" {
+  description = "Your SSH public key content (e.g., contents of ~/.ssh/id_ed25519.pub or ~/.ssh/id_rsa.pub)"
   type        = string
-  default     = "s-2vcpu-2gb"  # Cost-optimized for demo (~$18/month each)
-  # Production: "s-4vcpu-8gb" ($48/month each)
-  # Minimal demo: "s-1vcpu-2gb" ($12/month each) - works but very limited performance
-}
-
-variable "cold_node_size" {
-  description = "Droplet size for cold node - Recommended: s-1vcpu-2gb minimum"
-  type        = string
-  default     = "s-1vcpu-2gb"  # Minimum recommended (~$12/month)
-  # Production: "s-1vcpu-2gb" or larger
-}
-
-variable "frozen_node_size" {
-  description = "Droplet size for frozen node - Recommended: s-1vcpu-2gb minimum"
-  type        = string
-  default     = "s-1vcpu-2gb"  # Minimum recommended (~$12/month)
-  # Production: "s-1vcpu-2gb" or larger
 }
 
 variable "ssh_key_name" {
-  description = "Name of the SSH key in DigitalOcean"
+  description = "Name for the SSH key in DigitalOcean (will be created by Terraform)"
   type        = string
-}
-
-variable "ssh_private_key_path" {
-  description = "Path to SSH private key for provisioning (used to upload air-gapped packages)"
-  type        = string
-  default     = "~/.ssh/id_rsa"
+  default     = "elasticsearch-cluster-key"
 }
 
 variable "allowed_ips" {
@@ -155,17 +160,8 @@ variable "deployment_mode" {
 }
 
 # Cluster Tier Configuration
-variable "enable_cold_tier" {
-  description = "Enable cold data tier (1 node with 2GB RAM for older data)"
-  type        = bool
-  default     = false
-}
-
-variable "enable_frozen_tier" {
-  description = "Enable frozen data tier (1 node with 2GB RAM for archived data with searchable snapshots). Requires Spaces credentials."
-  type        = bool
-  default     = false
-}
+# NOTE: Cold and frozen tiers are now configured via the elasticsearch_nodes variable above
+# Set count > 0 for the tier you want to enable
 
 # Data Source Configuration
 variable "data_source_type" {

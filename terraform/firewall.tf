@@ -2,11 +2,7 @@
 resource "digitalocean_firewall" "elasticsearch" {
   name = "${local.cluster_name_prefix}-firewall"
 
-  droplet_ids = concat(
-    digitalocean_droplet.hot_nodes[*].id,
-    var.enable_cold_tier ? digitalocean_droplet.cold_node[*].id : [],
-    var.enable_frozen_tier ? digitalocean_droplet.frozen_node[*].id : []
-  )
+  droplet_ids = [for k, node in digitalocean_droplet.elasticsearch_nodes : node.id]
 
   # INBOUND RULES
 

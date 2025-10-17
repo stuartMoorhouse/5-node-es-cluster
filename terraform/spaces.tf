@@ -5,7 +5,11 @@ locals {
   bucket_name = var.spaces_bucket_name != "" ? var.spaces_bucket_name : "${local.cluster_name_prefix}-snapshots"
 
   # Determine if Spaces is needed based on tier configuration
-  spaces_needed = var.enable_cold_tier || var.enable_frozen_tier
+  # Check if cold or frozen tiers are enabled in elasticsearch_nodes
+  spaces_needed = (
+    try(var.elasticsearch_nodes.cold.count, 0) > 0 ||
+    try(var.elasticsearch_nodes.frozen.count, 0) > 0
+  )
 
   # Create Spaces if needed AND credentials are provided
   spaces_enabled = local.spaces_needed && var.spaces_access_id != ""

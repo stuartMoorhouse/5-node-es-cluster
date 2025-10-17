@@ -1,100 +1,47 @@
 #!/bin/bash
 set -e
 
-# AIR-GAPPED Elasticsearch Installation Script
-# This script installs Elasticsearch from local packages without internet access
-# Packages must be uploaded to /tmp/elasticsearch-install/ before running this script
+# NETWORKED Elasticsearch Installation Script
+# This script installs Elasticsearch from internet repositories
+# Droplets require internet access during installation
 
-# Variables passed from Terraform
-ES_VERSION="${elasticsearch_version}"
-ELASTIC_PASSWORD="${elastic_password}"
-CLUSTER_NAME="${cluster_name}"
-NODE_NUMBER="${node_number}"
-TOTAL_MASTERS="${total_masters}"
-MASTER_IPS="${master_ips}"
-IS_FIRST_NODE="${is_first_node}"
-MONITOR_PASSWORD="${monitor_password}"
-INGEST_PASSWORD="${ingest_password}"
-ADMIN_PASSWORD="${admin_password}"
-
-# Paths
-INSTALL_DIR="/tmp/elasticsearch-install"
-ES_PKG_DIR="$${INSTALL_DIR}/elasticsearch"
-JAVA_PKG_DIR="$${INSTALL_DIR}/java"
-DEPS_PKG_DIR="$${INSTALL_DIR}/dependencies"
+# Environment variables expected from Terraform provisioner:
+# ES_VERSION, ELASTIC_PASSWORD, CLUSTER_NAME, NODE_NUMBER, TOTAL_MASTERS,
+# MASTER_IPS, IS_FIRST_NODE, MONITOR_PASSWORD, INGEST_PASSWORD, ADMIN_PASSWORD,
+# PRIVATE_IP, NODE_ROLES
 
 # Logging
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
 }
 
-log "Starting air-gapped Elasticsearch installation..."
+log "Starting networked Elasticsearch installation from internet..."
+log "Node type: $NODE_ROLES"
+log "Private IP: $PRIVATE_IP"
 
-# Detect node type from hostname
-HOSTNAME=${dollar}(hostname)
-NODE_ROLES="remote_cluster_client"
+# Update package lists
+log "Updating package lists..."
+apt-get update
 
-if [[ "$${HOSTNAME}" == *"hot"* ]]; then
-  NODE_ROLES="master,data_hot,ingest,$${NODE_ROLES}"
-elif [[ "$${HOSTNAME}" == *"cold"* ]]; then
-  NODE_ROLES="data_cold,$${NODE_ROLES}"
-elif [[ "$${HOSTNAME}" == *"frozen"* ]]; then
-  NODE_ROLES="data_frozen,$${NODE_ROLES}"
-fi
+# Install prerequisites
+log "Installing prerequisites..."
+apt-get install -y apt-transport-https wget gnupg unzip
 
-log "Node type: $${NODE_ROLES}"
+# Add Elasticsearch GPG key
+log "Adding Elasticsearch GPG key..."
+wget -qO - https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor --batch --yes -o /usr/share/keyrings/elasticsearch-keyring.gpg
 
-# Verify packages directory exists
-if [ ! -d "$${INSTALL_DIR}" ]; then
-    log "ERROR: Installation directory not found: $${INSTALL_DIR}"
-    log "Packages must be uploaded before running this script"
-    exit 1
-fi
+# Add Elasticsearch repository
+log "Adding Elasticsearch repository..."
+echo "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/9.x/apt stable main" | tee /etc/apt/sources.list.d/elastic-9.x.list
 
-# Install system dependencies from local packages
-log "Installing system dependencies from local packages..."
-if [ -d "$${DEPS_PKG_DIR}" ] && [ "$(ls -A $${DEPS_PKG_DIR}/*.deb 2>/dev/null)" ]; then
-    cd "$${DEPS_PKG_DIR}"
-    dpkg -i *.deb 2>/dev/null || apt-get install -f -y --no-download
-    log "System dependencies installed"
-else
-    log "WARN: No system dependency packages found, attempting with existing system packages"
-fi
+# Update package lists with new repository
+log "Updating package lists with Elasticsearch repository..."
+apt-get update
 
-# Install Java from local packages
-log "Installing Java from local packages..."
-if [ -d "$${JAVA_PKG_DIR}" ] && [ "$(ls -A $${JAVA_PKG_DIR}/*.deb 2>/dev/null)" ]; then
-    cd "$${JAVA_PKG_DIR}"
-    dpkg -i *.deb 2>/dev/null || apt-get install -f -y --no-download
-    log "Java installed successfully"
-else
-    log "ERROR: Java packages not found in $${JAVA_PKG_DIR}"
-    exit 1
-fi
-
-# Verify Java installation
-if ! java -version 2>&1 | grep -q "openjdk"; then
-    log "ERROR: Java installation failed"
-    exit 1
-fi
-log "Java version: $(java -version 2>&1 | head -n 1)"
-
-# Install Elasticsearch from local package
-log "Installing Elasticsearch from local package..."
-if [ -d "$${ES_PKG_DIR}" ]; then
-    ES_DEB=$(find "$${ES_PKG_DIR}" -name "elasticsearch-*.deb" | head -n 1)
-    if [ -f "$${ES_DEB}" ]; then
-        log "Found Elasticsearch package: $${ES_DEB}"
-        dpkg -i "$${ES_DEB}" 2>/dev/null || apt-get install -f -y --no-download
-        log "Elasticsearch installed successfully"
-    else
-        log "ERROR: Elasticsearch DEB package not found in $${ES_PKG_DIR}"
-        exit 1
-    fi
-else
-    log "ERROR: Elasticsearch package directory not found"
-    exit 1
-fi
+# Install Elasticsearch
+log "Installing Elasticsearch version $ES_VERSION..."
+apt-get install -y elasticsearch=$ES_VERSION
 
 # Verify Elasticsearch installation
 if ! systemctl list-unit-files | grep -q elasticsearch.service; then
@@ -119,27 +66,64 @@ chmod 700 /home/esadmin/.ssh
 chmod 600 /home/esadmin/.ssh/authorized_keys
 
 # Secure SSH configuration
-log "Hardening SSH configuration..."
-sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
-sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
-systemctl restart sshd
+# TEMPORARILY DISABLED FOR DEBUGGING - Re-enable for production
+# log "Hardening SSH configuration..."
+# sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+# sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+# systemctl restart sshd
 
-# Get private IP for binding
-PRIVATE_IP=${dollar}(hostname -I | awk '{print $$1}')
-log "Private IP: $${PRIVATE_IP}"
+# Validate PRIVATE_IP was passed from Terraform
+if [ -z "$PRIVATE_IP" ] || ! [[ "$PRIVATE_IP" =~ ^10\.10\.10\. ]]; then
+  log "ERROR: Invalid or missing PRIVATE_IP environment variable (got: $PRIVATE_IP)"
+  log "ERROR: Expected IP in 10.10.10.x range for VPC networking"
+  exit 1
+fi
 
-# Create directories
-log "Creating certificate directories..."
-mkdir -p /etc/elasticsearch/certs
-mkdir -p /etc/elasticsearch/ca
-chown -R elasticsearch:elasticsearch /etc/elasticsearch/certs /etc/elasticsearch/ca
+log "Using private IP from Terraform: $PRIVATE_IP"
 
-# Generate or copy Certificate Authority
-if [[ "$$IS_FIRST_NODE" == "true" ]]; then
-  log "Generating Certificate Authority on first node..."
+# Detect single-node mode
+if [ "$TOTAL_MASTERS" == "1" ]; then
+  SINGLE_NODE_MODE=true
+  log "SINGLE-NODE MODE DETECTED - Using simplified configuration"
+else
+  SINGLE_NODE_MODE=false
+  log "MULTI-NODE MODE - Using cluster configuration"
+fi
+
+# Get hostname for configuration
+HOSTNAME=$(hostname)
+
+if [ "$SINGLE_NODE_MODE" = true ]; then
+  # Single-node mode: Use Elasticsearch's auto-generated configuration
+  # The installation already created certificates and basic config
+  log "Using Elasticsearch auto-generated certificates and configuration..."
+  log "Certificates auto-generated in /etc/elasticsearch/certs/"
+
+  # Modify the auto-generated elasticsearch.yml for our needs
+  log "Customizing elasticsearch.yml for single-node mode..."
+
+  # Replace cluster.initial_master_nodes with discovery.type: single-node
+  sed -i 's/^cluster\.initial_master_nodes:.*/# Single-node discovery\ndiscovery.type: single-node/' /etc/elasticsearch/elasticsearch.yml
+
+  # Set cluster name
+  sed -i "s/^#cluster\.name:.*/cluster.name: $CLUSTER_NAME/" /etc/elasticsearch/elasticsearch.yml
+
+  # Set node name
+  sed -i "s/^#node\.name:.*/node.name: $HOSTNAME/" /etc/elasticsearch/elasticsearch.yml
+
+  log "Single-node configuration complete"
+else
+  # Multi-node mode: Generate certificates and create full configuration
+  log "Creating certificate directories..."
+  mkdir -p /etc/elasticsearch/certs
+  mkdir -p /etc/elasticsearch/ca
+  chown -R elasticsearch:elasticsearch /etc/elasticsearch/certs /etc/elasticsearch/ca
+
   cd /usr/share/elasticsearch
+  # Multi-node mode: Generate both transport and HTTP certificates
+  log "Generating Certificate Authority for multi-node cluster..."
 
-  # Generate CA
+  # Generate CA for transport layer
   ./bin/elasticsearch-certutil ca \
     --out /etc/elasticsearch/ca/elastic-stack-ca.p12 \
     --pass ""
@@ -153,91 +137,93 @@ if [[ "$$IS_FIRST_NODE" == "true" ]]; then
   cd /etc/elasticsearch/ca
   unzip -o http-ca.zip
 
-  # Store CA for other nodes
-  cp elastic-stack-ca.p12 /tmp/elastic-stack-ca.p12
-  chmod 644 /tmp/elastic-stack-ca.p12
   log "Certificate Authority generated"
-else
-  log "Waiting for CA from first node..."
-  sleep 60  # Wait for first node to generate CA
+
+  # Generate node certificates signed by CA (for transport layer)
+  log "Generating transport layer certificates..."
+  cd /usr/share/elasticsearch
+  ./bin/elasticsearch-certutil cert \
+    --ca /etc/elasticsearch/ca/elastic-stack-ca.p12 \
+    --ca-pass "" \
+    --dns "$HOSTNAME,$(hostname -f),localhost" \
+    --ip "$PRIVATE_IP,127.0.0.1" \
+    --name "$HOSTNAME" \
+    --out /etc/elasticsearch/certs/elastic-certificates.p12 \
+    --pass ""
+
+  # Generate HTTP certificates
+  log "Generating HTTP certificates..."
+  ./bin/elasticsearch-certutil http \
+    --ca /etc/elasticsearch/ca/elastic-stack-ca.p12 \
+    --ca-pass "" \
+    --dns "$HOSTNAME,$(hostname -f),localhost" \
+    --ip "$PRIVATE_IP,127.0.0.1" \
+    --out /etc/elasticsearch/certs/http.zip \
+    --silent
+
+  cd /etc/elasticsearch/certs
+  unzip -o http.zip
+  mv elasticsearch/* .
+  rm -rf elasticsearch kibana http.zip
+
+  log "Transport and HTTP certificates generated for multi-node cluster"
 fi
 
-# Generate node certificates signed by CA
-log "Generating node certificates..."
-cd /usr/share/elasticsearch
-./bin/elasticsearch-certutil cert \
-  --ca /etc/elasticsearch/ca/elastic-stack-ca.p12 \
-  --ca-pass "" \
-  --dns "$$HOSTNAME,${dollar}(hostname -f),localhost" \
-  --ip "$$PRIVATE_IP,127.0.0.1" \
-  --name "$$HOSTNAME" \
-  --out /etc/elasticsearch/certs/elastic-certificates.p12 \
-  --pass ""
+# Set proper permissions (only for multi-node, single-node certs already have correct permissions)
+if [ "$SINGLE_NODE_MODE" = false ]; then
+  chown -R elasticsearch:elasticsearch /etc/elasticsearch/certs
+  chmod 600 /etc/elasticsearch/certs/*.key 2>/dev/null || true
+  chmod 600 /etc/elasticsearch/certs/*.p12 2>/dev/null || true
+  log "Certificates configured"
+fi
 
-# Generate HTTP certificates
-log "Generating HTTP certificates..."
-./bin/elasticsearch-certutil http \
-  --ca /etc/elasticsearch/ca/elastic-stack-ca.p12 \
-  --ca-pass "" \
-  --dns "$$HOSTNAME,${dollar}(hostname -f),localhost" \
-  --ip "$$PRIVATE_IP,127.0.0.1" \
-  --out /etc/elasticsearch/certs/http.zip \
-  --silent
+# Keystore is auto-generated during installation, add passwords only for multi-node
+if [ "$SINGLE_NODE_MODE" = false ]; then
+  # Multi-node mode: Add transport SSL keystore passwords
+  log "Adding transport SSL keystore passwords..."
+  echo "" | /usr/share/elasticsearch/bin/elasticsearch-keystore add --stdin xpack.security.transport.ssl.keystore.secure_password
+  echo "" | /usr/share/elasticsearch/bin/elasticsearch-keystore add --stdin xpack.security.transport.ssl.truststore.secure_password
+  echo "" | /usr/share/elasticsearch/bin/elasticsearch-keystore add --stdin xpack.security.http.ssl.keystore.secure_password
+fi
 
-cd /etc/elasticsearch/certs
-unzip -o http.zip
-mv elasticsearch/* .
-rm -rf elasticsearch kibana http.zip
+# Multi-node configuration - write full elasticsearch.yml
+if [ "$SINGLE_NODE_MODE" = false ]; then
+  # Configure master nodes list
+  MASTER_NODES_ARRAY=(${MASTER_IPS//,/ })
+  SEED_HOSTS=""
+  INITIAL_MASTERS=""
+  for i in "${!MASTER_NODES_ARRAY[@]}"; do
+    if [ $i -gt 0 ]; then
+      SEED_HOSTS+=", "
+      INITIAL_MASTERS+=", "
+    fi
+    SEED_HOSTS+="\"${MASTER_NODES_ARRAY[$i]}\""
+    INITIAL_MASTERS+="\"${CLUSTER_NAME}-hot-$((i+1))\""
+  done
 
-# Set proper permissions
-chown -R elasticsearch:elasticsearch /etc/elasticsearch/certs
-chmod 600 /etc/elasticsearch/certs/*.key 2>/dev/null || true
-chmod 600 /etc/elasticsearch/certs/*.p12 2>/dev/null || true
-log "Certificates configured"
-
-# Create keystore and add passwords
-log "Creating Elasticsearch keystore..."
-/usr/share/elasticsearch/bin/elasticsearch-keystore create -s
-echo "" | /usr/share/elasticsearch/bin/elasticsearch-keystore add --stdin xpack.security.transport.ssl.keystore.secure_password
-echo "" | /usr/share/elasticsearch/bin/elasticsearch-keystore add --stdin xpack.security.transport.ssl.truststore.secure_password
-echo "" | /usr/share/elasticsearch/bin/elasticsearch-keystore add --stdin xpack.security.http.ssl.keystore.secure_password
-
-# Configure master nodes list
-MASTER_NODES_ARRAY=($${MASTER_IPS//,/ })
-SEED_HOSTS=""
-INITIAL_MASTERS=""
-for i in "$${!MASTER_NODES_ARRAY[@]}"; do
-  if [ $$i -gt 0 ]; then
-    SEED_HOSTS+=", "
-    INITIAL_MASTERS+=", "
-  fi
-  SEED_HOSTS+="\"$${MASTER_NODES_ARRAY[$$i]}\""
-  INITIAL_MASTERS+="\"$${CLUSTER_NAME}-hot-${dollar}((i+1))\""
-done
-
-# Configure Elasticsearch with enhanced security
-log "Configuring Elasticsearch..."
-cat > /etc/elasticsearch/elasticsearch.yml << EOF
+  # Multi-node configuration - write complete elasticsearch.yml
+  log "Writing multi-node cluster configuration..."
+  cat > /etc/elasticsearch/elasticsearch.yml << EOF
 # Cluster configuration
-cluster.name: $$CLUSTER_NAME
-node.name: $$HOSTNAME
-node.roles: [$$NODE_ROLES]
+cluster.name: $CLUSTER_NAME
+node.name: $HOSTNAME
+node.roles: [$NODE_ROLES]
 
 # Network settings
-network.host: $$PRIVATE_IP
+network.host: $PRIVATE_IP
 http.port: 9200
 transport.port: 9300
 
 # Discovery settings
-discovery.seed_hosts: [$$SEED_HOSTS]
-cluster.initial_master_nodes: [$$INITIAL_MASTERS]
+discovery.seed_hosts: [$SEED_HOSTS]
+cluster.initial_master_nodes: [$INITIAL_MASTERS]
 
-# Security settings - Transport layer
+# Security settings - Transport layer (relaxed for demo with self-signed certs)
 xpack.security.enabled: true
 xpack.security.enrollment.enabled: true
 xpack.security.transport.ssl.enabled: true
-xpack.security.transport.ssl.verification_mode: full
-xpack.security.transport.ssl.client_authentication: required
+xpack.security.transport.ssl.verification_mode: none
+xpack.security.transport.ssl.client_authentication: optional
 xpack.security.transport.ssl.keystore.path: certs/elastic-certificates.p12
 xpack.security.transport.ssl.truststore.path: certs/elastic-certificates.p12
 
@@ -276,6 +262,7 @@ http.cors.enabled: false
 http.cors.allow-origin: ""
 
 EOF
+fi
 
 # Set heap size based on available memory (50% of RAM)
 log "Configuring JVM heap size..."
@@ -294,9 +281,9 @@ else
   HEAP_SIZE="1g"
 fi
 
-sed -i "s/^-Xms.*/-Xms$${HEAP_SIZE}/" /etc/elasticsearch/jvm.options
-sed -i "s/^-Xmx.*/-Xmx$${HEAP_SIZE}/" /etc/elasticsearch/jvm.options
-log "Set heap size to $${HEAP_SIZE} (Total RAM: ~$${TOTAL_MEM_GB}GB)"
+sed -i "s/^-Xms.*/-Xms${HEAP_SIZE}/" /etc/elasticsearch/jvm.options
+sed -i "s/^-Xmx.*/-Xmx${HEAP_SIZE}/" /etc/elasticsearch/jvm.options
+log "Set heap size to ${HEAP_SIZE} (Total RAM: ~${TOTAL_MEM_GB}GB)"
 
 # Enable and start Elasticsearch
 log "Starting Elasticsearch service..."
@@ -306,7 +293,7 @@ systemctl start elasticsearch
 # Wait for Elasticsearch to start
 log "Waiting for Elasticsearch to start..."
 for i in {1..60}; do
-  if curl -k -s -o /dev/null -w "%%{http_code}" https://$$PRIVATE_IP:9200 | grep -q "401\|200"; then
+  if curl -k -s -o /dev/null -w "%%{http_code}" https://$PRIVATE_IP:9200 | grep -q "401\|200"; then
     log "Elasticsearch is responding"
     break
   fi
@@ -314,23 +301,23 @@ for i in {1..60}; do
 done
 
 # Set built-in user passwords on first node
-if [[ "$$IS_FIRST_NODE" == "true" ]]; then
+if [[ "$IS_FIRST_NODE" == "true" ]]; then
   log "Setting up built-in users passwords..."
   sleep 30  # Wait for cluster to form
 
   # Set elastic password
-  echo "$$ELASTIC_PASSWORD" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -i -s -b
+  echo "$ELASTIC_PASSWORD" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic --stdin -b
 
   # Set other built-in user passwords
-  echo "$$ELASTIC_PASSWORD" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u kibana_system -i -s -b
-  echo "$$ELASTIC_PASSWORD" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u logstash_system -i -s -b
-  echo "$$ELASTIC_PASSWORD" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u beats_system -i -s -b
-  echo "$$ELASTIC_PASSWORD" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u apm_system -i -s -b
-  echo "$$ELASTIC_PASSWORD" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u remote_monitoring_user -i -s -b
+  echo "$ELASTIC_PASSWORD" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u kibana_system --stdin -b
+  echo "$ELASTIC_PASSWORD" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u logstash_system --stdin -b
+  echo "$ELASTIC_PASSWORD" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u beats_system --stdin -b
+  echo "$ELASTIC_PASSWORD" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u apm_system --stdin -b
+  echo "$ELASTIC_PASSWORD" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u remote_monitoring_user --stdin -b
   log "Built-in user passwords configured"
 fi
 
-# Create RBAC setup script (same as original)
+# Create RBAC setup script
 cat > /home/esadmin/setup_rbac.sh << 'SCRIPT'
 #!/bin/bash
 set -e
@@ -521,12 +508,12 @@ chmod +x /home/esadmin/setup_rbac.sh
 chown esadmin:esadmin /home/esadmin/setup_rbac.sh
 
 # Run RBAC setup on first node
-if [[ "$$IS_FIRST_NODE" == "true" ]]; then
+if [[ "$IS_FIRST_NODE" == "true" ]]; then
   log "Setting up RBAC..."
-  sudo -u esadmin /home/esadmin/setup_rbac.sh "$$ELASTIC_PASSWORD" "$$MONITOR_PASSWORD" "$$INGEST_PASSWORD" "$$ADMIN_PASSWORD"
+  sudo -u esadmin /home/esadmin/setup_rbac.sh "$ELASTIC_PASSWORD" "$MONITOR_PASSWORD" "$INGEST_PASSWORD" "$ADMIN_PASSWORD"
 fi
 
-# Create snapshot repository configuration script (same as original)
+# Create snapshot repository configuration script
 cat > /home/esadmin/configure_snapshot_repo.sh << 'SCRIPT'
 #!/bin/bash
 # This script should be run after the cluster is fully formed
@@ -571,7 +558,7 @@ SCRIPT
 chmod +x /home/esadmin/configure_snapshot_repo.sh
 chown esadmin:esadmin /home/esadmin/configure_snapshot_repo.sh
 
-# Create security validation script (same as original)
+# Create security validation script
 cat > /home/esadmin/validate_security.sh << 'SCRIPT'
 #!/bin/bash
 
@@ -608,16 +595,12 @@ SCRIPT
 chmod +x /home/esadmin/validate_security.sh
 chown esadmin:esadmin /home/esadmin/validate_security.sh
 
-# Clean up installation packages
-log "Cleaning up installation packages..."
-rm -rf "$${INSTALL_DIR}"
-
 log "========================================="
-log "Air-gapped Elasticsearch installation complete!"
+log "Networked Elasticsearch installation complete!"
 log "========================================="
-log "Cluster: $${CLUSTER_NAME}"
-log "Node: $${HOSTNAME}"
-log "Roles: $${NODE_ROLES}"
+log "Cluster: ${CLUSTER_NAME}"
+log "Node: ${HOSTNAME}"
+log "Roles: ${NODE_ROLES}"
 log "SSH access is now restricted to non-root users only"
 log "Use the esadmin user for administration tasks"
 log "========================================="

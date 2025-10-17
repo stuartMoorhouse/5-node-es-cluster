@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-# AIR-GAPPED Cribl Stream Installation Script
-# Installs Cribl Stream from local packages without internet access
+# NETWORKED Cribl Stream Installation Script
+# Installs Cribl Stream from internet repositories
 
 # Variables passed from Terraform
 CRIBL_VERSION="${cribl_version}"
@@ -12,45 +12,76 @@ CRIBL_AUTH_TOKEN="${cribl_auth_token}"
 ELASTICSEARCH_URL="${elasticsearch_url}"
 ELASTICSEARCH_PASSWORD="${elasticsearch_password}"
 
-# Paths
-INSTALL_DIR="/tmp/cribl-install"
-
 # Logging
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
 }
 
-log "Starting air-gapped Cribl Stream installation..."
+log "Starting Cribl Stream installation..."
 
-# Get private IP
-PRIVATE_IP=${dollar}(hostname -I | awk '{print $$1}')
-log "Private IP: $${PRIVATE_IP}"
+# Wait for networking to be ready and get private IP
+log "Waiting for network to be ready..."
+for i in {1..30}; do
+  # Try multiple methods to get private IP
+  PRIVATE_IP=${dollar}(hostname -I 2>/dev/null | awk '{print $$1}')
 
-# Verify packages directory exists
-if [ ! -d "$${INSTALL_DIR}" ]; then
-    log "ERROR: Installation directory not found: $${INSTALL_DIR}"
-    log "Packages must be uploaded before running this script"
-    exit 1
+  # Fallback to ip command if hostname -I fails
+  if [ -z "$${PRIVATE_IP}" ]; then
+    PRIVATE_IP=${dollar}(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n 1)
+  fi
+
+  # Fallback to DigitalOcean metadata service
+  if [ -z "$${PRIVATE_IP}" ]; then
+    PRIVATE_IP=${dollar}(curl -s http://169.254.169.254/metadata/v1/interfaces/private/0/ipv4/address 2>/dev/null)
+  fi
+
+  # Check if we got a valid IP
+  if [ -n "$${PRIVATE_IP}" ] && [[ "$${PRIVATE_IP}" =~ ^10\. ]]; then
+    log "Private IP: $${PRIVATE_IP}"
+    break
+  fi
+
+  log "Waiting for network... attempt $i/30"
+  sleep 2
+done
+
+if [ -z "$${PRIVATE_IP}" ]; then
+  log "ERROR: Could not determine private IP address"
+  exit 1
 fi
 
-# Install Cribl from local package
-log "Installing Cribl Stream from local package..."
-CRIBL_DEB=$(find "$${INSTALL_DIR}" -name "cribl_*.deb" | head -n 1)
-if [ -f "$${CRIBL_DEB}" ]; then
-    log "Found Cribl package: $${CRIBL_DEB}"
-    dpkg -i "$${CRIBL_DEB}" 2>/dev/null || apt-get install -f -y --no-download
-    log "Cribl Stream installed successfully"
-else
-    log "ERROR: Cribl DEB package not found in $${INSTALL_DIR}"
-    exit 1
-fi
+log "Using IP address: $${PRIVATE_IP}"
+
+# Update package lists
+log "Updating package lists..."
+apt-get update
+
+# Install prerequisites
+log "Installing prerequisites..."
+apt-get install -y curl gnupg apt-transport-https
+
+# Add Cribl GPG key
+log "Adding Cribl GPG key..."
+curl -fsSL https://cdn.cribl.io/dl/cribl-gpg-public.key | gpg --dearmor -o /usr/share/keyrings/cribl-archive-keyring.gpg
+
+# Add Cribl repository
+log "Adding Cribl repository..."
+echo "deb [signed-by=/usr/share/keyrings/cribl-archive-keyring.gpg] https://cdn.cribl.io/apt-repos/ stable main" | tee /etc/apt/sources.list.d/cribl.list
+
+# Update package lists with new repository
+log "Updating package lists with Cribl repository..."
+apt-get update
+
+# Install Cribl Stream
+log "Installing Cribl Stream version $${CRIBL_VERSION}..."
+apt-get install -y cribl=$${CRIBL_VERSION}-1
 
 # Verify installation
 if [ ! -d "/opt/cribl" ]; then
     log "ERROR: Cribl installation directory not found"
     exit 1
 fi
-log "Cribl Stream installation verified"
+log "Cribl Stream installed successfully"
 
 # Create non-root admin user
 log "Creating cribl admin user..."
@@ -67,10 +98,11 @@ chmod 700 /home/cribladmin/.ssh
 chmod 600 /home/cribladmin/.ssh/authorized_keys
 
 # Secure SSH
-log "Hardening SSH configuration..."
-sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
-sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
-systemctl restart sshd
+# TEMPORARILY DISABLED FOR DEBUGGING - Re-enable for production
+# log "Hardening SSH configuration..."
+# sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+# sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+# systemctl restart sshd
 
 # Configure Cribl based on mode
 if [[ "$${CRIBL_LEADER_MODE}" == "worker" ]]; then
@@ -205,12 +237,8 @@ for i in {1..30}; do
   sleep 5
 done
 
-# Clean up installation packages
-log "Cleaning up installation packages..."
-rm -rf "$${INSTALL_DIR}"
-
 log "========================================="
-log "Air-gapped Cribl Stream installation complete!"
+log "Networked Cribl Stream installation complete!"
 log "========================================="
 log "Mode: $${CRIBL_LEADER_MODE}"
 log "IP: $${PRIVATE_IP}"

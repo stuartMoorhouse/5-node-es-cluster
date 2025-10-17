@@ -15,28 +15,17 @@ resource "digitalocean_droplet" "cribl_stream" {
   monitoring = var.enable_monitoring
 
   ssh_keys = [
-    data.digitalocean_ssh_key.main.id
+    digitalocean_ssh_key.main.id
   ]
 
-  user_data = var.deployment_mode == "airgapped" ? templatefile(
-    "${path.module}/scripts/install_cribl_airgapped.sh",
+  user_data = templatefile(
+    "${path.module}/scripts/install_cribl.sh",
     {
       cribl_version         = var.cribl_stream_version
       cribl_leader_mode     = var.cribl_leader_mode
       cribl_leader_url      = var.cribl_leader_url
       cribl_auth_token      = var.cribl_auth_token
-      elasticsearch_url     = "https://${digitalocean_droplet.hot_nodes[0].ipv4_address_private}:9200"
-      elasticsearch_password = random_password.ingest_password.result
-      dollar                = local.dollar
-    }
-    ) : templatefile(
-    "${path.module}/scripts/install_cribl_networked.sh",
-    {
-      cribl_version         = var.cribl_stream_version
-      cribl_leader_mode     = var.cribl_leader_mode
-      cribl_leader_url      = var.cribl_leader_url
-      cribl_auth_token      = var.cribl_auth_token
-      elasticsearch_url     = "https://${digitalocean_droplet.hot_nodes[0].ipv4_address_private}:9200"
+      elasticsearch_url     = "https://${values(digitalocean_droplet.elasticsearch_nodes)[0].ipv4_address_private}:9200"
       elasticsearch_password = random_password.ingest_password.result
       dollar                = local.dollar
     }
@@ -47,38 +36,5 @@ resource "digitalocean_droplet" "cribl_stream" {
     ["elasticsearch", "data-source", "cribl-stream"]
   )
 
-  depends_on = [digitalocean_droplet.hot_nodes]
-}
-
-# Air-gapped package upload - Cribl Stream nodes
-resource "null_resource" "upload_packages_cribl" {
-  count = var.deployment_mode == "airgapped" && local.actual_cribl_count > 0 ? local.actual_cribl_count : 0
-
-  triggers = {
-    droplet_id = digitalocean_droplet.cribl_stream[count.index].id
-  }
-
-  connection {
-    type        = "ssh"
-    user        = "root"
-    host        = digitalocean_droplet.cribl_stream[count.index].ipv4_address
-    private_key = file(pathexpand(var.ssh_private_key_path))
-    timeout     = "5m"
-  }
-
-  # Create directory for packages
-  provisioner "remote-exec" {
-    inline = [
-      "mkdir -p /tmp/cribl-install",
-      "chmod 755 /tmp/cribl-install"
-    ]
-  }
-
-  # Upload Cribl package
-  provisioner "file" {
-    source      = "${path.module}/packages/cribl/"
-    destination = "/tmp/cribl-install/"
-  }
-
-  depends_on = [digitalocean_droplet.cribl_stream]
+  depends_on = [digitalocean_droplet.elasticsearch_nodes]
 }

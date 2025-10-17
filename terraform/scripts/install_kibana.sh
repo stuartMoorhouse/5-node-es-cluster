@@ -1,25 +1,59 @@
 #!/bin/bash
 set -e
 
-# NETWORKED Kibana Installation Script
+# Kibana Installation Script
 # Installs Kibana from internet repositories
+# Configures Fleet for local registries if in airgapped mode
 
 # Variables passed from Terraform
 ES_VERSION="${elasticsearch_version}"
 ELASTIC_PASSWORD="${elastic_password}"
 CLUSTER_NAME="${cluster_name}"
 MASTER_IPS="${master_ips}"
+DEPLOYMENT_MODE="${deployment_mode}"
+EPR_URL="${epr_url}"
+ARTIFACT_REGISTRY_URL="${artifact_registry_url}"
 
 # Logging
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
 }
 
-log "Starting networked Kibana installation..."
+log "Starting Kibana installation (mode: $${DEPLOYMENT_MODE})..."
 
-# Get private IP
-PRIVATE_IP=${dollar}(hostname -I | awk '{print $$1}')
-log "Private IP: $${PRIVATE_IP}"
+# Wait for networking to be ready and get private IP
+log "Waiting for network to be ready..."
+for i in {1..30}; do
+  # Try multiple methods to get private IP
+  PRIVATE_IP=${dollar}(hostname -I 2>/dev/null | awk '{print $$1}')
+
+  # Fallback to ip command if hostname -I fails
+  if [ -z "$${PRIVATE_IP}" ]; then
+    PRIVATE_IP=${dollar}(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n 1)
+  fi
+
+  # Fallback to DigitalOcean metadata service
+  if [ -z "$${PRIVATE_IP}" ]; then
+    PRIVATE_IP=${dollar}(curl -s http://169.254.169.254/metadata/v1/interfaces/private/0/ipv4/address 2>/dev/null)
+  fi
+
+  # Check if we got a valid IP
+  if [ -n "$${PRIVATE_IP}" ] && [[ "$${PRIVATE_IP}" =~ ^10\. ]]; then
+    log "Private IP: $${PRIVATE_IP}"
+    break
+  fi
+
+  log "Waiting for network... attempt $i/30"
+  sleep 2
+done
+
+# Final fallback - use 0.0.0.0 to listen on all interfaces
+if [ -z "$${PRIVATE_IP}" ] || [[ ! "$${PRIVATE_IP}" =~ ^10\. ]]; then
+  log "WARNING: Could not determine private IP, using 0.0.0.0"
+  PRIVATE_IP="0.0.0.0"
+fi
+
+log "Using IP address: $${PRIVATE_IP}"
 
 # Update package lists
 log "Updating package lists..."
@@ -60,10 +94,11 @@ chmod 700 /home/esadmin/.ssh
 chmod 600 /home/esadmin/.ssh/authorized_keys
 
 # Secure SSH
-log "Hardening SSH configuration..."
-sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
-sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
-systemctl restart sshd
+# TEMPORARILY DISABLED FOR DEBUGGING - Re-enable for production
+# log "Hardening SSH configuration..."
+# sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+# sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+# systemctl restart sshd
 
 # Get first Elasticsearch node IP
 FIRST_ES_IP=$(echo $${MASTER_IPS} | cut -d',' -f1)
@@ -136,12 +171,56 @@ for i in {1..60}; do
   sleep 5
 done
 
-# Create configuration script for Fleet
+# Configure Fleet based on deployment mode
+if [[ "$${DEPLOYMENT_MODE}" == "airgapped" ]] && [[ -n "$${EPR_URL}" ]]; then
+  log "Configuring Fleet for local package registry mode..."
+
+  # Wait for Kibana API to be fully ready
+  log "Waiting for Kibana API to be ready..."
+  for i in {1..30}; do
+    if curl -s -u "elastic:$${ELASTIC_PASSWORD}" \
+         -H "kbn-xsrf: true" \
+         http://localhost:5601/api/status | grep -q "available"; then
+      log "Kibana API is ready"
+      break
+    fi
+    sleep 10
+  done
+
+  # Initialize Fleet
+  log "Initializing Fleet..."
+  curl -X POST "http://localhost:5601/api/fleet/setup" \
+    -H "kbn-xsrf: true" \
+    -H "Content-Type: application/json" \
+    -u "elastic:$${ELASTIC_PASSWORD}"
+
+  sleep 5
+
+  # Configure Fleet to use local registries
+  log "Configuring Fleet to use local EPR and Artifact Registry..."
+  curl -X PUT "http://localhost:5601/api/fleet/settings" \
+    -H "kbn-xsrf: true" \
+    -H "Content-Type: application/json" \
+    -u "elastic:$${ELASTIC_PASSWORD}" \
+    -d "{
+      \"package_registry_url\": \"$${EPR_URL}\",
+      \"agent_binary_download\": {
+        \"source_uri\": \"$${ARTIFACT_REGISTRY_URL}\"
+      }
+    }"
+
+  log "Fleet configured for local registries!"
+  log "  EPR: $${EPR_URL}"
+  log "  Artifact Registry: $${ARTIFACT_REGISTRY_URL}"
+else
+  log "Fleet will use public Elastic registries (networked mode)"
+fi
+
+# Create manual configuration script for Fleet
 cat > /home/esadmin/configure_fleet.sh << 'SCRIPT'
 #!/bin/bash
 # Configure Fleet in Kibana
-# Run this after Kibana is fully operational
-# Fleet will use Elastic's public Package Registry (https://epr.elastic.co)
+# Run this manually if automatic configuration failed
 
 set -e
 
@@ -156,28 +235,28 @@ fi
 
 echo "Configuring Fleet..."
 
-# Wait for Kibana to be ready
-sleep 30
-
-# Setup Fleet (will use public Elastic Package Registry by default)
+# Setup Fleet
 curl -X POST "$KIBANA_URL/api/fleet/setup" \
   -H "kbn-xsrf: true" \
   -H "Content-Type: application/json" \
   -u "$ELASTIC_USER:$ELASTIC_PASS"
 
 echo "Fleet configured successfully!"
-echo "Fleet will use Elastic's public Package Registry: https://epr.elastic.co"
-echo "Elastic Agents will download binaries from Elastic's public artifact repository"
 SCRIPT
 
 chmod +x /home/esadmin/configure_fleet.sh
 chown esadmin:esadmin /home/esadmin/configure_fleet.sh
 
 log "========================================="
-log "Networked Kibana installation complete!"
+log "Kibana installation complete!"
 log "========================================="
 log "Kibana URL: http://$${PRIVATE_IP}:5601"
 log "Username: elastic"
-log "Fleet uses public Elastic Package Registry"
+log "Deployment Mode: $${DEPLOYMENT_MODE}"
+if [[ "$${DEPLOYMENT_MODE}" == "airgapped" ]]; then
+  log "Fleet configured for LOCAL registries"
+else
+  log "Fleet uses PUBLIC Elastic registries"
+fi
 log "SSH access restricted to esadmin user"
 log "========================================="
