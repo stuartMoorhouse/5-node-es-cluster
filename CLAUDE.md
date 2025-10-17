@@ -1,107 +1,168 @@
-# Claude Code Python Project Documentation
+# Elasticsearch Cluster Terraform Project
 
-This document provides context and guidelines for Claude when working on this Python project.
+This document provides context and guidelines for Claude when working on this Terraform project.
 
 ## Project Overview
 
-This is a Python project template for Claude Code that includes security best practices, automated formatting, and pre-commit hooks.
+This is a Terraform configuration for deploying an Elasticsearch cluster on DigitalOcean with two deployment modes that demonstrate different Fleet/integration architectures.
 
 ## Project Structure
 
-- `src/` - Main source code directory
-- `tests/` - Test files
-- `docs/` - Documentation
-- `.claude/` - Claude Code configuration and hooks
-- `.github/` - GitHub-specific configurations
-- `pyproject.toml` - Python project configuration and dependencies
+- `terraform/` - Terraform configuration files
+  - `main.tf` - Core Elasticsearch cluster resources
+  - `phase2.tf` - Kibana, EPR, and Artifact Registry
+  - `data-sources.tf` - Optional data source VMs (Cribl Stream)
+  - `firewall.tf` - Security rules
+  - `variables.tf` - Input variables
+  - `outputs.tf` - Output values
+  - `scripts/` - Installation scripts for each component
+  - `packages/` - Package directory (mostly empty, for reference)
+- `state/` - Terraform state files (gitignored)
+- `README.md` - User-facing documentation
+- `CLAUDE.md` - This file (Claude context)
+
+## Deployment Modes
+
+### 1. Networked Mode (Default)
+- **Purpose**: Standard deployment with public Elastic infrastructure
+- **Fleet Configuration**: Uses public services
+  - Package Registry: `epr.elastic.co`
+  - Agent Downloads: `artifacts.elastic.co`
+- **Installation**: All packages installed from internet during deployment
+
+### 2. Local Package Registry Mode (`deployment_mode = "airgapped"`)
+- **Purpose**: Demonstrates air-gapped/isolated architecture patterns
+- **Fleet Configuration**: Uses local infrastructure
+  - **Local EPR** (Elastic Package Registry): Runs on port 8443
+  - **Local Artifact Registry**: Nginx server on port 9080
+  - Fleet automatically configured via API to use these local registries
+- **Installation**: Same as networked - uses internet during installation
+- **Key Difference**: Fleet configuration only - demonstrates how to run isolated from public Elastic services
+
+## Important Architecture Notes
+
+### The "Local Package Registry" Approach
+
+**What It Is:**
+- A demonstration/learning setup that shows how to configure Fleet for air-gapped environments
+- Installation uses internet connectivity (downloads Elasticsearch, Kibana, etc. from public repos)
+- After installation, Fleet is configured to use local registries instead of public Elastic services
+
+**What It Is NOT:**
+- A true air-gapped deployment where droplets have NO internet access
+- A setup that installs from pre-downloaded .deb packages
+
+**Why This Approach:**
+- Simpler and more reliable than true air-gapped installation
+- Demonstrates the key architectural difference: using local EPR and Artifact Registry
+- Installation process is identical for both modes
+- Only Fleet configuration differs between modes
+
+### Installation Scripts
+
+**Both modes use the same installation scripts:**
+- `install_elasticsearch_networked.sh` / `install_elasticsearch_airgapped.sh`
+- `install_kibana_networked.sh` / `install_kibana_airgapped.sh`
+- etc.
+
+**The "airgapped" scripts:**
+- Install packages from internet (same as networked)
+- Additionally deploy and configure local registries (EPR, Artifact Registry)
+- Automatically configure Fleet via API to use local registries
+
+## Key Components
+
+### Elastic Package Registry (EPR)
+- **Technology**: Go application running in Docker container
+- **Port**: 8443 (HTTP)
+- **Purpose**: Serves integration packages (Apache, AWS, Kubernetes, etc.)
+- **Docker Image**: `docker.elastic.co/package-registry/distribution:v9.1.5`
+- **Replaces**: `epr.elastic.co` in air-gapped mode
+
+### Artifact Registry
+- **Technology**: Native Nginx installation (NOT Docker)
+- **Port**: 9080 (HTTP, no TLS per Elastic recommendation)
+- **Purpose**: Serves Elastic Agent binaries for different platforms
+- **Root Directory**: `/opt/elastic-packages/`
+- **Configuration**: `/etc/nginx/sites-available/elastic-artifacts`
+- **Replaces**: `artifacts.elastic.co` in air-gapped mode
+
+### Fleet Configuration (Air-Gapped Mode Only)
+
+After Kibana starts, the install script automatically:
+1. Waits for Kibana API to be ready
+2. Initializes Fleet via `POST /api/fleet/setup`
+3. Configures Fleet via `PUT /api/fleet/settings`:
+   ```json
+   {
+     "package_registry_url": "http://10.10.10.2:8443",
+     "agent_binary_download": {
+       "source_uri": "http://10.10.10.3:9080/downloads/"
+     }
+   }
+   ```
+
+This is the "flip the switch" moment - Fleet now uses local infrastructure.
 
 ## Development Guidelines
 
-### Code Style
-- Follow PEP 8 conventions
-- Use Black for code formatting (88 character line length)
-- Use isort for import sorting
-- Use type hints for all functions
-- Docstrings for all public functions and classes
+### When Making Changes
 
-### Security Practices
-- Never hardcode secrets or credentials
-- Use environment variables for sensitive data
-- Validate all user inputs
-- Follow OWASP security guidelines
-- Use Bandit and Safety for security scanning
+1. **Both modes should work identically during installation**
+   - Don't create separate installation logic
+   - Both modes install from internet
 
-### Testing
-- Write tests for all new features
-- Maintain test coverage above 80%
-- Use pytest for testing
-- Run tests before committing: `uv run pytest`
+2. **Air-gapped mode adds configuration**
+   - Deploy local registries (EPR, Artifact Registry)
+   - Configure Fleet to use them
 
-### Package Management
-- This project uses UV for Python package management
-- Dependencies are defined in `pyproject.toml`
-- Install dependencies with: `uv pip install -e ".[dev]"`
+3. **No package upload complexity**
+   - We don't upload .deb files to droplets
+   - We don't use local package installation
+   - Installation always uses `apt` or `curl` from internet
 
-## Available Commands
+### Firewall Rules
 
-### UV Commands
-- `uv venv` - Create virtual environment
-- `uv pip install -e ".[dev]"` - Install all dependencies
-- `uv run pytest` - Run tests
-- `uv run black src/` - Format code
-- `uv run ruff check src/` - Lint code
-- `uv run mypy src/` - Type check code
+- Both modes allow HTTP/HTTPS outbound during installation
+- SSH is always accessible (for demo purposes)
+- Consider: Optional iptables rules to block Elastic's public servers after configuration (to prove independence)
 
-### Testing & Quality
-- `uv run pytest` - Run all tests
-- `uv run pytest --cov=src` - Run tests with coverage
-- `uv run black --check src/` - Check formatting
-- `uv run isort --check-only src/` - Check import sorting
-- `uv run bandit -r src/` - Security scanning
+### Common Patterns
 
-## Custom Claude Commands
+**Adding a new component:**
+1. Create networked install script (installs from internet)
+2. If needed for air-gapped demo, create airgapped variant that also sets up local registries
+3. Update phase2.tf or appropriate .tf file with conditional logic
 
-- `/security-review` - Perform comprehensive security analysis
-- `/fix-github-issue <number>` - Automatically fix a GitHub issue
+**Testing changes:**
+```bash
+# Test networked mode
+terraform apply -var="deployment_mode=networked"
 
-## Environment Variables
-
-Create a `.env` file with:
+# Test local registry mode
+terraform apply -var="deployment_mode=airgapped"
 ```
-# Add your environment variables here
-API_KEY=your_api_key_here
-DATABASE_URL=your_database_url_here
-```
-
-## Common Tasks
-
-### Adding a New Feature
-1. Create a feature branch
-2. Implement the feature with tests
-3. Run formatting: `uv run black src/`
-4. Run linting: `uv run ruff check src/`
-5. Run tests: `uv run pytest`
-6. Create a pull request
-
-### Setting Up Development Environment
-1. Install UV: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-2. Create virtual environment: `uv venv`
-3. Install dependencies: `uv pip install -e ".[dev]"`
-4. Install pre-commit hooks: `pre-commit install`
-
-### Debugging
-1. Check logs in `.claude/logs/`
-2. Use debugger with `breakpoint()` (Python 3.7+)
-3. Remove all debug code before committing
-
-## Project Initialization
-
-When initializing this project with /init, refer to product-requirement-prompts.md for the specific requirements and success criteria. This file contains all the necessary context for generating the initial project structure and implementation.
 
 ## Important Notes
 
-- Always check for existing implementations before creating new files
-- Follow the principle of least privilege for file permissions
-- Keep dependencies up to date with `uv pip install --upgrade`
-- Document any complex logic or business rules
-- Use type hints to improve code clarity and catch errors early
+- The variable name is still `deployment_mode = "airgapped"` for backwards compatibility
+- In documentation, we call it "Local Package Registry Mode"
+- Both modes require internet connectivity during deployment
+- The key difference is Fleet configuration, not installation method
+- This is a demonstration/learning setup, not production-ready air-gapped deployment
+
+## Troubleshooting
+
+### Kibana not accessible
+- Check cloud-init logs: `/var/log/cloud-init-output.log`
+- Check Kibana service: `systemctl status kibana`
+- Check Kibana logs: `/var/log/kibana/kibana.log`
+
+### Fleet configuration failed
+- Manual configuration script available: `/home/esadmin/configure_fleet_airgapped.sh`
+- Check Kibana API is responding: `curl http://localhost:5601/api/status`
+
+### EPR or Artifact Registry not working
+- EPR: Check Docker container: `docker ps | grep package-registry`
+- Artifact Registry: Check nginx: `systemctl status nginx`
+- Check ports: `ss -tlnp | grep -E '8443|9080'`

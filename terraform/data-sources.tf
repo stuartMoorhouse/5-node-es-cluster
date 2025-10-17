@@ -62,7 +62,7 @@ resource "null_resource" "upload_packages_cribl" {
     type        = "ssh"
     user        = "root"
     host        = digitalocean_droplet.cribl_stream[count.index].ipv4_address
-    private_key = file(var.ssh_private_key_path)
+    private_key = file(pathexpand(var.ssh_private_key_path))
     timeout     = "5m"
   }
 

@@ -50,7 +50,7 @@ output "cold_node_ip" {
   value = var.enable_cold_tier ? {
     public  = digitalocean_droplet.cold_node[0].ipv4_address
     private = digitalocean_droplet.cold_node[0].ipv4_address_private
-  } : "Not deployed (enable_cold_tier = false)"
+  } : null
 }
 
 output "frozen_node_ip" {
@@ -58,7 +58,7 @@ output "frozen_node_ip" {
   value = var.enable_frozen_tier ? {
     public  = digitalocean_droplet.frozen_node[0].ipv4_address
     private = digitalocean_droplet.frozen_node[0].ipv4_address_private
-  } : "Not deployed (enable_frozen_tier = false)"
+  } : null
 }
 
 output "spaces_bucket_name" {

@@ -238,7 +238,7 @@ resource "null_resource" "upload_packages_hot" {
     type        = "ssh"
     user        = "root"
     host        = digitalocean_droplet.hot_nodes[count.index].ipv4_address
-    private_key = file(var.ssh_private_key_path)
+    private_key = file(pathexpand(var.ssh_private_key_path))
     timeout     = "5m"
   }
 
@@ -273,17 +273,17 @@ resource "null_resource" "upload_packages_hot" {
 
 # Air-gapped package upload - Cold node
 resource "null_resource" "upload_packages_cold" {
-  count = var.deployment_mode == "airgapped" ? 1 : 0
+  count = var.deployment_mode == "airgapped" && var.enable_cold_tier ? 1 : 0
 
   triggers = {
-    droplet_id = digitalocean_droplet.cold_node.id
+    droplet_id = digitalocean_droplet.cold_node[0].id
   }
 
   connection {
     type        = "ssh"
     user        = "root"
-    host        = digitalocean_droplet.cold_node.ipv4_address
-    private_key = file(var.ssh_private_key_path)
+    host        = digitalocean_droplet.cold_node[0].ipv4_address
+    private_key = file(pathexpand(var.ssh_private_key_path))
     timeout     = "5m"
   }
 
@@ -318,17 +318,17 @@ resource "null_resource" "upload_packages_cold" {
 
 # Air-gapped package upload - Frozen node
 resource "null_resource" "upload_packages_frozen" {
-  count = var.deployment_mode == "airgapped" ? 1 : 0
+  count = var.deployment_mode == "airgapped" && var.enable_frozen_tier ? 1 : 0
 
   triggers = {
-    droplet_id = digitalocean_droplet.frozen_node.id
+    droplet_id = digitalocean_droplet.frozen_node[0].id
   }
 
   connection {
     type        = "ssh"
     user        = "root"
-    host        = digitalocean_droplet.frozen_node.ipv4_address
-    private_key = file(var.ssh_private_key_path)
+    host        = digitalocean_droplet.frozen_node[0].ipv4_address
+    private_key = file(pathexpand(var.ssh_private_key_path))
     timeout     = "5m"
   }
 

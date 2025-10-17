@@ -4,19 +4,27 @@ Terraform configuration for deploying a flexible, production-ready Elasticsearch
 
 ## Deployment Modes
 
-This project supports **two deployment modes** via a single variable:
+This project supports **two deployment modes** that demonstrate different Fleet/integration architectures:
 
-### 1. Networked Mode (Default, Recommended for Demo)
-- **Use when**: Droplets can access internet, faster deployment
-- **How it works**: Packages installed directly from Elastic repositories
+### 1. Networked Mode (Default)
+- **Use when**: Standard deployment with public Elastic infrastructure
+- **How it works**: Fleet uses public Elastic services
+  - Package Registry: `epr.elastic.co` (for integrations)
+  - Artifact Downloads: `artifacts.elastic.co` (for agent binaries)
 - **Components**: Elasticsearch nodes (configurable) + Kibana
-- **Setup**: No package download required
+- **Installation**: All packages installed from internet during deployment
 
-### 2. Air-Gapped Mode
-- **Use when**: Droplets have no internet access, maximum security isolation
-- **How it works**: All packages pre-downloaded and uploaded via Terraform
-- **Components**: Elasticsearch nodes (configurable) + Kibana + EPR + Artifact Registry
-- **Setup**: Requires package download step before deployment
+### 2. Local Package Registry Mode
+- **Use when**: Demonstrating air-gapped/isolated architecture patterns
+- **How it works**: Fleet uses local infrastructure instead of public Elastic services
+  - **Local EPR** (Elastic Package Registry): Serves integration packages locally
+  - **Local Artifact Registry**: Serves Elastic Agent binaries locally
+  - Fleet automatically configured to use these local registries
+- **Components**: Elasticsearch + Kibana + Local EPR + Local Artifact Registry
+- **Installation**: All packages installed from internet during deployment
+- **Key Difference**: Fleet configuration points to local registries instead of public ones
+
+**Important**: Both modes use internet connectivity during installation. The "local package registry" mode demonstrates how to configure Fleet for air-gapped operations by using local registries, but installation itself requires internet access.
 
 **Switch modes** by setting `deployment_mode = "airgapped"` in `terraform.tfvars`
 
@@ -44,19 +52,38 @@ This project supports **two deployment modes** via a single variable:
 
 ## Deployment Process
 
-### Air-Gapped Mode
-Deploys Elasticsearch in an **air-gapped environment** where droplets have no internet access during installation:
-
-1. **Preparation Phase** (Internet-connected machine): Download all required packages
-2. **Upload Phase** (Terraform): Automatically upload packages to droplets
-3. **Installation Phase** (Droplets): Install from local packages without internet access
-
-### Networked Mode
-Deploys Elasticsearch with **internet access** for faster, simpler deployment:
+### Both Modes - Installation Phase
+Both deployment modes follow the same installation process:
 
 1. **Deployment Phase**: Terraform creates droplets
-2. **Installation Phase**: Droplets download and install packages from Elastic repositories
-3. **Configuration Phase**: Same security setup as air-gapped mode
+2. **Installation Phase**: Droplets download and install packages from internet:
+   - Elasticsearch from Elastic repositories
+   - Kibana from Elastic repositories
+   - Docker (for EPR container, if local registry mode)
+   - Nginx (for Artifact Registry, if local registry mode)
+   - All system dependencies
+3. **Security Configuration**: Certificate setup, user creation, firewall rules
+
+### Local Package Registry Mode - Additional Configuration
+
+After installation, the local package registry mode performs additional steps:
+
+4. **Deploy Local Registries**:
+   - **EPR Container**: Runs Elastic Package Registry on port 8443
+   - **Artifact Registry**: Configures Nginx to serve agent binaries on port 9080
+
+5. **Configure Fleet** (Automatic via API):
+   - Sets Package Registry URL to `http://10.10.10.2:8443` (local EPR)
+   - Sets Agent Binary Downloads to `http://10.10.10.3:9080/downloads/` (local Artifact Registry)
+
+6. **Result**: Fleet now uses local infrastructure instead of public Elastic services
+
+### Demonstrating Air-Gapped Capability
+
+While installation uses internet access, the local registry mode demonstrates air-gapped patterns:
+- Integrations fetched from local EPR instead of epr.elastic.co
+- Agent binaries downloaded from local Artifact Registry instead of artifacts.elastic.co
+- Optional: Block outbound traffic to Elastic's public servers to prove independence
 
 ## Prerequisites
 
@@ -66,62 +93,15 @@ Deploys Elasticsearch with **internet access** for faster, simpler deployment:
 2. SSH key added to DigitalOcean account
 3. Terraform >= 1.0
 4. DigitalOcean CLI (optional, for verification)
+5. Droplets need internet access (HTTP/HTTPS outbound) during installation
 
-### Additional Requirements by Mode
+### No Additional Requirements
 
-**Air-Gapped Mode:**
-- SSH private key file locally (for package upload)
-- Internet connection on your local machine (to download packages)
-- Docker (optional, for automatic dependency download)
-
-**Networked Mode:**
-- Droplets need internet access (HTTP/HTTPS outbound)
-- No package download or SSH key requirements
+Both deployment modes use the same installation process. The local package registry mode simply adds configuration steps after installation to set up and configure the local registries.
 
 ## Setup Instructions
 
-### 1. Download Required Packages (Air-Gapped Mode Only)
-
-**Skip this step if using networked mode.**
-
-For air-gapped deployments, this step must be completed on an internet-connected machine before deployment.
-
-```bash
-cd terraform/scripts
-
-# Run the download script
-./download_packages.sh
-```
-
-This script will:
-- Download Elasticsearch 9.1.5 DEB package
-- Attempt to download Java and dependencies using Docker (if available)
-- Create instructions for manual download if Docker is unavailable
-- Generate a manifest of downloaded packages
-
-**Verify the download:**
-
-```bash
-# Check the manifest
-cat ../packages/MANIFEST.md
-
-# Verify Elasticsearch package
-ls -lh ../packages/elasticsearch/
-
-# Check Java packages (if Docker was available)
-ls -lh ../packages/java/
-
-# Check dependencies (if Docker was available)
-ls -lh ../packages/dependencies/
-```
-
-**Manual Download (if Docker unavailable):**
-
-If Docker is not available, follow the instructions in:
-- `terraform/packages/java/README.md`
-- `terraform/packages/dependencies/README.md`
-
-### 2. Configure Environment
+### 1. Configure Environment
 
 ```bash
 # Set your DigitalOcean API token
@@ -136,9 +116,10 @@ cp terraform.tfvars.example terraform.tfvars
 ```
 
 Edit `terraform.tfvars` with your values:
-- `deployment_mode`: Set to "airgapped" or "networked" (default: "normal")
+- `deployment_mode`: Set to "airgapped" or "networked" (default: "networked")
+  - "networked": Fleet uses public Elastic services (epr.elastic.co, artifacts.elastic.co)
+  - "airgapped": Fleet uses local registries (demonstrates air-gapped architecture)
 - `ssh_key_name`: Name of your SSH key in DigitalOcean (REQUIRED)
-- `ssh_private_key_path`: Path to your SSH private key file (air-gapped only, default: `~/.ssh/id_rsa`)
 - `allowed_ips`: IPs allowed to access Elasticsearch API (RESTRICT IN PRODUCTION)
 - `allowed_ssh_ips`: IPs allowed SSH access (leave empty to use allowed_ips)
 - `region`: Choose your preferred DigitalOcean region
@@ -157,8 +138,6 @@ spaces_secret_key    = "your-spaces-secret-key"
 ```
 
 **Important**: If you enable `enable_frozen_tier=true`, you MUST provide Spaces credentials. The deployment will fail without them.
-
-**Important for Air-Gapped Mode**: The `ssh_private_key_path` is used by Terraform to upload packages to droplets.
 
 ### 4. Initialize and Deploy
 

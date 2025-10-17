@@ -111,7 +111,7 @@ resource "null_resource" "upload_packages_kibana" {
     type        = "ssh"
     user        = "root"
     host        = digitalocean_droplet.kibana.ipv4_address
-    private_key = file(var.ssh_private_key_path)
+    private_key = file(pathexpand(var.ssh_private_key_path))
     timeout     = "5m"
   }
 
@@ -142,7 +142,7 @@ resource "null_resource" "upload_packages_epr" {
     type        = "ssh"
     user        = "root"
     host        = digitalocean_droplet.epr[0].ipv4_address
-    private_key = file(var.ssh_private_key_path)
+    private_key = file(pathexpand(var.ssh_private_key_path))
     timeout     = "5m"
   }
 
@@ -173,7 +173,7 @@ resource "null_resource" "upload_packages_artifact_registry" {
     type        = "ssh"
     user        = "root"
     host        = digitalocean_droplet.artifact_registry[0].ipv4_address
-    private_key = file(var.ssh_private_key_path)
+    private_key = file(pathexpand(var.ssh_private_key_path))
     timeout     = "5m"
   }
 

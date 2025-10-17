@@ -178,6 +178,129 @@ SCRIPT
 chmod +x /home/esadmin/configure_fleet.sh
 chown esadmin:esadmin /home/esadmin/configure_fleet.sh
 
+# Configure Fleet to use local registries (automatic for air-gapped mode)
+log "========================================="
+log "Configuring Fleet for air-gapped operation..."
+log "========================================="
+
+# Wait for Kibana to be fully ready
+log "Waiting for Kibana API to be fully available..."
+KIBANA_READY=false
+for i in {1..60}; do
+  if curl -s -u "elastic:$${ELASTIC_PASSWORD}" http://localhost:5601/api/status 2>/dev/null | grep -q "available"; then
+    log "Kibana API is ready"
+    KIBANA_READY=true
+    break
+  fi
+  log "Waiting for Kibana API... ($$i/60)"
+  sleep 10
+done
+
+if [ "$$KIBANA_READY" = "false" ]; then
+  log "WARN: Kibana API not ready after 10 minutes"
+  log "Fleet configuration can be done manually with: ./configure_fleet_airgapped.sh"
+else
+  # Setup Fleet first
+  log "Initializing Fleet..."
+  curl -X POST "http://localhost:5601/api/fleet/setup" \
+    -H "kbn-xsrf: true" \
+    -H "Content-Type: application/json" \
+    -u "elastic:$${ELASTIC_PASSWORD}" \
+    2>/dev/null || log "Fleet may already be initialized"
+
+  sleep 5
+
+  # Configure Fleet to use local registries
+  log "Setting Fleet to use local EPR: $${EPR_URL}"
+  log "Setting Fleet to use local Artifact Registry: $${ARTIFACT_REGISTRY_URL}"
+
+  FLEET_CONFIG_RESPONSE=$$(curl -s -w "\n%%{http_code}" -X PUT "http://localhost:5601/api/fleet/settings" \
+    -H "kbn-xsrf: true" \
+    -H "Content-Type: application/json" \
+    -u "elastic:$${ELASTIC_PASSWORD}" \
+    -d "{
+      \"package_registry_url\": \"$${EPR_URL}\",
+      \"agent_binary_download\": {
+        \"source_uri\": \"$${ARTIFACT_REGISTRY_URL}/downloads/\"
+      }
+    }" 2>&1)
+
+  HTTP_CODE=$$(echo "$$FLEET_CONFIG_RESPONSE" | tail -n 1)
+
+  if [ "$$HTTP_CODE" = "200" ] || [ "$$HTTP_CODE" = "201" ]; then
+    log "✓ Fleet configured successfully for air-gapped operation"
+    log "  - Package Registry: $${EPR_URL}"
+    log "  - Agent Downloads: $${ARTIFACT_REGISTRY_URL}/downloads/"
+  else
+    log "WARN: Fleet configuration returned HTTP $$HTTP_CODE"
+    log "Response: $$(echo "$$FLEET_CONFIG_RESPONSE" | head -n -1)"
+    log "Manual configuration available: ./configure_fleet_airgapped.sh"
+  fi
+fi
+
+# Create air-gapped Fleet configuration script
+cat > /home/esadmin/configure_fleet_airgapped.sh << AIRGAPPED_SCRIPT
+#!/bin/bash
+# Configure Fleet for Air-Gapped Operation
+# This configures Fleet to use local EPR and Artifact Registry
+
+set -e
+
+KIBANA_URL="http://localhost:5601"
+ELASTIC_USER="elastic"
+ELASTIC_PASS="\$$1"
+EPR_URL="$${EPR_URL}"
+ARTIFACT_URL="$${ARTIFACT_REGISTRY_URL}"
+
+if [ \$$# -ne 1 ]; then
+  echo "Usage: \$$0 <elastic_password>"
+  exit 1
+fi
+
+echo "========================================="
+echo "Configuring Fleet for Air-Gapped Mode"
+echo "========================================="
+echo "EPR: \$$EPR_URL"
+echo "Artifacts: \$$ARTIFACT_URL/downloads/"
+echo ""
+
+# Setup Fleet
+echo "Initializing Fleet..."
+curl -X POST "\$$KIBANA_URL/api/fleet/setup" \\
+  -H "kbn-xsrf: true" \\
+  -H "Content-Type: application/json" \\
+  -u "\$$ELASTIC_USER:\$$ELASTIC_PASS" \\
+  2>/dev/null || echo "Fleet may already be initialized"
+
+sleep 2
+
+# Configure registries
+echo "Configuring Fleet to use local registries..."
+curl -X PUT "\$$KIBANA_URL/api/fleet/settings" \\
+  -H "kbn-xsrf: true" \\
+  -H "Content-Type: application/json" \\
+  -u "\$$ELASTIC_USER:\$$ELASTIC_PASS" \\
+  -d "{
+    \"package_registry_url\": \"\$$EPR_URL\",
+    \"agent_binary_download\": {
+      \"source_uri\": \"\$$ARTIFACT_URL/downloads/\"
+    }
+  }"
+
+echo ""
+echo "✓ Fleet configured for air-gapped operation!"
+echo ""
+echo "Verify in Kibana:"
+echo "1. Go to Management > Fleet > Settings"
+echo "2. Check Package Registry URL: \$$EPR_URL"
+echo "3. Check Agent Binary Download: \$$ARTIFACT_URL/downloads/"
+AIRGAPPED_SCRIPT
+
+chmod +x /home/esadmin/configure_fleet_airgapped.sh
+chown esadmin:esadmin /home/esadmin/configure_fleet_airgapped.sh
+
+log "========================================="
+
 # Clean up installation packages
 log "Cleaning up installation packages..."
 rm -rf "$${INSTALL_DIR}"
