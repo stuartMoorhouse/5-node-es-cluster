@@ -138,49 +138,52 @@ output "security_notes" {
     WARNING: Root SSH access is disabled. Use 'esadmin' user.
   EOT
 }
-# Phase 2 Outputs
+
+# Kibana, EPR, and Artifact Registry Outputs
 output "kibana_url" {
   description = "URL to access Kibana web interface"
-  value       = var.enable_phase2 ? "http://${digitalocean_droplet.kibana[0].ipv4_address}:5601" : "Phase 2 not enabled"
+  value       = "http://${digitalocean_droplet.kibana.ipv4_address}:5601"
 }
 
 output "kibana_ip" {
   description = "IP address of Kibana server"
-  value       = var.enable_phase2 ? digitalocean_droplet.kibana[0].ipv4_address : "Phase 2 not enabled"
+  value       = digitalocean_droplet.kibana.ipv4_address
 }
 
 output "epr_url" {
-  description = "Internal URL for Elastic Package Registry"
-  value       = var.enable_phase2 ? "http://${digitalocean_droplet.epr[0].ipv4_address_private}:8443" : "Phase 2 not enabled"
+  description = "Internal URL for Elastic Package Registry (air-gapped mode only)"
+  value       = var.deployment_mode == "airgapped" ? "http://${digitalocean_droplet.epr[0].ipv4_address_private}:8443" : "Using public Elastic Package Registry (https://epr.elastic.co)"
 }
 
 output "epr_ip" {
-  description = "IP address of EPR server"
-  value       = var.enable_phase2 ? digitalocean_droplet.epr[0].ipv4_address : "Phase 2 not enabled"
+  description = "IP address of EPR server (air-gapped mode only)"
+  value       = var.deployment_mode == "airgapped" ? digitalocean_droplet.epr[0].ipv4_address : "N/A (networked mode)"
 }
 
 output "artifact_registry_url" {
-  description = "Internal URL for Artifact Registry"
-  value       = var.enable_phase2 ? "http://${digitalocean_droplet.artifact_registry[0].ipv4_address_private}:9080" : "Phase 2 not enabled"
+  description = "Internal URL for Artifact Registry (air-gapped mode only)"
+  value       = var.deployment_mode == "airgapped" ? "http://${digitalocean_droplet.artifact_registry[0].ipv4_address_private}:9080" : "Using public Elastic artifact repository"
 }
 
 output "artifact_registry_ip" {
-  description = "IP address of Artifact Registry server"
-  value       = var.enable_phase2 ? digitalocean_droplet.artifact_registry[0].ipv4_address : "Phase 2 not enabled"
+  description = "IP address of Artifact Registry server (air-gapped mode only)"
+  value       = var.deployment_mode == "airgapped" ? digitalocean_droplet.artifact_registry[0].ipv4_address : "N/A (networked mode)"
 }
 
-output "phase2_notes" {
-  description = "Phase 2 configuration notes"
-  value       = var.enable_phase2 ? <<-EOT
-    ===== PHASE 2 CONFIGURATION =====
+output "elastic_services_notes" {
+  description = "Kibana, EPR, and Artifact Registry configuration notes"
+  value = var.deployment_mode == "airgapped" ? <<-EOT
+    ===== ELASTIC SERVICES CONFIGURATION (AIR-GAPPED) =====
+
+    Deployment Mode: Air-Gapped
 
     1. Kibana Access:
-       URL: http://${digitalocean_droplet.kibana[0].ipv4_address}:5601
+       URL: http://${digitalocean_droplet.kibana.ipv4_address}:5601
        Username: elastic
        Password: <use elasticsearch_password output>
 
     2. Configure Fleet (after Kibana starts):
-       ssh esadmin@${digitalocean_droplet.kibana[0].ipv4_address}
+       ssh esadmin@${digitalocean_droplet.kibana.ipv4_address}
        ./configure_fleet.sh <elastic_password>
 
     3. EPR (Internal Only):
@@ -195,6 +198,91 @@ output "phase2_notes" {
        ssh esadmin@${digitalocean_droplet.artifact_registry[0].ipv4_address}
        See: ~/README_ARTIFACTS.md
 
-    ==================================
-  EOT : "Phase 2 not enabled - set enable_phase2 = true in terraform.tfvars"
+    ========================================================
+  EOT
+  : <<-EOT
+    ===== ELASTIC SERVICES CONFIGURATION (NETWORKED) =====
+
+    Deployment Mode: Networked
+
+    1. Kibana Access:
+       URL: http://${digitalocean_droplet.kibana.ipv4_address}:5601
+       Username: elastic
+       Password: <use elasticsearch_password output>
+
+    2. Configure Fleet (after Kibana starts):
+       ssh esadmin@${digitalocean_droplet.kibana.ipv4_address}
+       ./configure_fleet.sh <elastic_password>
+
+    3. Package Registry:
+       Uses public Elastic Package Registry: https://epr.elastic.co
+       No local EPR server needed
+
+    4. Agent Artifacts:
+       Elastic Agents download binaries from public repositories
+       No local artifact registry needed
+
+    Note: This deployment requires internet connectivity for:
+    - Downloading Elastic packages during installation
+    - Fleet Package Registry access
+    - Elastic Agent binary downloads
+
+    ======================================================
+  EOT
+}
+
+# Data Source Outputs - Cribl Stream
+output "cribl_stream_urls" {
+  description = "URLs to access Cribl Stream UI"
+  value       = var.cribl_stream_count > 0 ? [for node in digitalocean_droplet.cribl_stream : "http://${node.ipv4_address}:9000"] : []
+}
+
+output "cribl_stream_ips" {
+  description = "IP addresses of Cribl Stream nodes"
+  value = var.cribl_stream_count > 0 ? {
+    public  = digitalocean_droplet.cribl_stream[*].ipv4_address
+    private = digitalocean_droplet.cribl_stream[*].ipv4_address_private
+  } : {}
+}
+
+output "cribl_stream_ssh_commands" {
+  description = "SSH commands to connect to Cribl Stream nodes (use cribladmin user)"
+  value       = var.cribl_stream_count > 0 ? [for i, ip in digitalocean_droplet.cribl_stream[*].ipv4_address : "ssh cribladmin@${ip}"] : []
+}
+
+output "cribl_stream_notes" {
+  description = "Cribl Stream configuration notes"
+  value = var.cribl_stream_count > 0 ? <<-EOT
+    ===== CRIBL STREAM CONFIGURATION =====
+
+    Deployed: ${var.cribl_stream_count} Cribl Stream node(s)
+    Mode: ${var.cribl_leader_mode}
+
+    1. Access Cribl UI:
+       ${join("\n       ", [for i, node in digitalocean_droplet.cribl_stream : "Node ${i + 1}: http://${node.ipv4_address}:9000"])}
+
+    2. Get Credentials (Standalone mode):
+       ${join("\n       ", [for i, ip in digitalocean_droplet.cribl_stream[*].ipv4_address : "ssh cribladmin@${ip} && cat ~/cribl_credentials.txt"])}
+
+    3. Configure Elasticsearch Destination:
+       ssh cribladmin@<cribl-ip>
+       ./configure_elasticsearch_destination.sh <admin_password>
+
+    4. Data Input Ports:
+       - Syslog TCP/UDP: 514
+       - HEC (HTTP Event Collector): 8088
+       - Raw TCP: 10001
+       - S3: 10200 (internal)
+
+    5. Elasticsearch Connection:
+       - Destination URL: ${digitalocean_droplet.hot_nodes[0].ipv4_address_private}:9200
+       - Username: ingest
+       - Password: <use ingest_password output>
+
+    Note: Configure routes and pipelines via Cribl UI
+    SSH access restricted to cribladmin user
+
+    ======================================
+  EOT
+  : "No Cribl Stream nodes deployed (set cribl_stream_count > 0 to enable)"
 }

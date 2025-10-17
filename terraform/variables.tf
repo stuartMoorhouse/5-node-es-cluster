@@ -43,27 +43,31 @@ variable "elasticsearch_version" {
 }
 
 variable "hot_node_count" {
-  description = "Number of hot data nodes"
+  description = "Number of hot data nodes (minimum 2 for master quorum)"
   type        = number
-  default     = 3
+  default     = 2  # Reduced from 3 for cost optimization
 }
 
 variable "hot_node_size" {
-  description = "Droplet size for hot nodes (8GB RAM)"
+  description = "Droplet size for hot nodes - Production: s-4vcpu-8gb, Demo: s-2vcpu-2gb, Minimal: s-1vcpu-2gb"
   type        = string
-  default     = "s-4vcpu-8gb"
+  default     = "s-2vcpu-2gb"  # Cost-optimized for demo (~$18/month each)
+  # Production: "s-4vcpu-8gb" ($48/month each)
+  # Minimal demo: "s-1vcpu-2gb" ($12/month each) - works but very limited performance
 }
 
 variable "cold_node_size" {
-  description = "Droplet size for cold node (2GB RAM)"
+  description = "Droplet size for cold node - Recommended: s-1vcpu-2gb minimum"
   type        = string
-  default     = "s-1vcpu-2gb"
+  default     = "s-1vcpu-2gb"  # Minimum recommended (~$12/month)
+  # Production: "s-1vcpu-2gb" or larger
 }
 
 variable "frozen_node_size" {
-  description = "Droplet size for frozen node (2GB RAM)"
+  description = "Droplet size for frozen node - Recommended: s-1vcpu-2gb minimum"
   type        = string
-  default     = "s-1vcpu-2gb"
+  default     = "s-1vcpu-2gb"  # Minimum recommended (~$12/month)
+  # Production: "s-1vcpu-2gb" or larger
 }
 
 variable "ssh_key_name" {
@@ -101,27 +105,83 @@ variable "enable_monitoring" {
   default     = true
 }
 
-# Phase 2 Configuration
-variable "enable_phase2" {
-  description = "Enable Phase 2 components (Kibana, EPR, Artifact Registry)"
-  type        = bool
-  default     = false
-}
-
 variable "kibana_node_size" {
-  description = "Droplet size for Kibana (4GB RAM recommended)"
+  description = "Droplet size for Kibana - Production: s-2vcpu-4gb, Demo: s-1vcpu-2gb"
   type        = string
-  default     = "s-2vcpu-4gb"
+  default     = "s-1vcpu-2gb"  # Cost-optimized for demo (~$12/month)
+  # Production: "s-2vcpu-4gb" ($24/month) for better performance
 }
 
 variable "epr_node_size" {
-  description = "Droplet size for EPR server (2GB RAM)"
+  description = "Droplet size for EPR server - Minimum: s-1vcpu-2gb"
   type        = string
-  default     = "s-1vcpu-2gb"
+  default     = "s-1vcpu-2gb"  # Minimum recommended (~$12/month)
+  # Can use s-1vcpu-1gb ($6/month) for very light usage
 }
 
 variable "artifact_registry_node_size" {
-  description = "Droplet size for Artifact Registry (2GB RAM)"
+  description = "Droplet size for Artifact Registry - Minimum: s-1vcpu-2gb"
   type        = string
-  default     = "s-1vcpu-2gb"
+  default     = "s-1vcpu-2gb"  # Minimum recommended (~$12/month)
+  # Can use s-1vcpu-1gb ($6/month) for very light usage
+}
+
+variable "deployment_mode" {
+  description = "Deployment mode: 'airgapped' (packages pre-downloaded and uploaded) or 'normal' (install from internet)"
+  type        = string
+  default     = "airgapped"
+
+  validation {
+    condition     = contains(["airgapped", "normal"], var.deployment_mode)
+    error_message = "deployment_mode must be either 'airgapped' or 'normal'"
+  }
+}
+
+# Data Source Configuration
+variable "cribl_stream_count" {
+  description = "Number of Cribl Stream VMs to create (0 to disable)"
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.cribl_stream_count >= 0 && var.cribl_stream_count <= 10
+    error_message = "cribl_stream_count must be between 0 and 10"
+  }
+}
+
+variable "cribl_stream_node_size" {
+  description = "Droplet size for Cribl Stream - Recommended: s-2vcpu-4gb minimum"
+  type        = string
+  default     = "s-2vcpu-4gb"  # Recommended for processing (~$24/month)
+  # Production: "s-4vcpu-8gb" ($48/month) for heavy workloads
+}
+
+variable "cribl_stream_version" {
+  description = "Cribl Stream version to install"
+  type        = string
+  default     = "4.8.2"  # Latest stable version
+}
+
+variable "cribl_leader_mode" {
+  description = "Cribl deployment mode: 'standalone' or 'worker' (worker requires external leader)"
+  type        = string
+  default     = "standalone"
+
+  validation {
+    condition     = contains(["standalone", "worker"], var.cribl_leader_mode)
+    error_message = "cribl_leader_mode must be either 'standalone' or 'worker'"
+  }
+}
+
+variable "cribl_leader_url" {
+  description = "URL of Cribl Leader (only required if cribl_leader_mode is 'worker')"
+  type        = string
+  default     = ""
+}
+
+variable "cribl_auth_token" {
+  description = "Cribl worker auth token (only required if cribl_leader_mode is 'worker')"
+  type        = string
+  default     = ""
+  sensitive   = true
 }

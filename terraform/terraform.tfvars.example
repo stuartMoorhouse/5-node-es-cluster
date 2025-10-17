@@ -23,14 +23,26 @@ ssh_key_name = "your-ssh-key-name"
 ssh_private_key_path = "~/.ssh/id_rsa"
 
 # Node Configuration
-hot_node_count   = 3
-hot_node_size    = "s-4vcpu-8gb"  # 8GB RAM for hot nodes
-cold_node_size   = "s-1vcpu-2gb"  # 2GB RAM for cold node
-frozen_node_size = "s-1vcpu-2gb"  # 2GB RAM for frozen node
+# DEMO/POC (Cost-optimized - ~$2/day):
+hot_node_count   = 2              # Minimum for master quorum
+hot_node_size    = "s-2vcpu-2gb"  # 2GB RAM (~$18/month each)
+cold_node_size   = "s-1vcpu-2gb"  # 2GB RAM (~$12/month)
+frozen_node_size = "s-1vcpu-2gb"  # 2GB RAM (~$12/month)
+
+# PRODUCTION (Original - ~$5.60/day):
+# hot_node_count   = 3
+# hot_node_size    = "s-4vcpu-8gb"  # 8GB RAM (~$48/month each)
+# cold_node_size   = "s-1vcpu-2gb"  # 2GB RAM (~$12/month)
+# frozen_node_size = "s-1vcpu-2gb"  # 2GB RAM (~$12/month)
 
 # Elasticsearch Version
 # Using 9.1.5 - latest stable version as of October 2025
 elasticsearch_version = "9.1.5"
+
+# Deployment Mode
+# "airgapped" - Pre-download packages and upload via Terraform (no internet required on droplets)
+# "normal"    - Install packages directly from internet repositories (droplets need internet access)
+deployment_mode = "airgapped"
 
 # Security Configuration
 # WARNING: Default opens access to the entire internet.
@@ -63,3 +75,27 @@ spaces_bucket_name = ""
 
 # Monitoring
 enable_monitoring = true
+
+# Node Sizes for Kibana, EPR, and Artifact Registry
+# The full Elastic stack includes these services by default
+# DEMO cost (with defaults below): ~$1.20/day
+# PRODUCTION cost (larger sizes): ~$1.60/day
+# kibana_node_size            = "s-1vcpu-2gb"  # Uncomment to override default
+# epr_node_size               = "s-1vcpu-2gb"  # Uncomment to override default
+# artifact_registry_node_size = "s-1vcpu-2gb"  # Uncomment to override default
+
+# Data Source Configuration - Cribl Stream
+# Optional VMs for sending data to Elasticsearch via Cribl Stream
+# Set cribl_stream_count > 0 to enable (0 = disabled)
+
+cribl_stream_count = 0  # Number of Cribl Stream VMs (0 to disable, 1-10 to enable)
+
+# Uncomment to enable Cribl Stream:
+# cribl_stream_count     = 1              # Create 1 Cribl Stream instance
+# cribl_stream_node_size = "s-2vcpu-4gb"  # Recommended: s-2vcpu-4gb (~$24/month)
+# cribl_stream_version   = "4.8.2"        # Cribl Stream version
+# cribl_leader_mode      = "standalone"   # "standalone" or "worker"
+
+# Worker mode configuration (only if cribl_leader_mode = "worker"):
+# cribl_leader_url   = "https://your-leader-url:4200"
+# cribl_auth_token   = "your-worker-auth-token"

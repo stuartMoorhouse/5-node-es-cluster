@@ -67,19 +67,37 @@ resource "digitalocean_droplet" "hot_nodes" {
     data.digitalocean_ssh_key.main.id
   ]
 
-  user_data = templatefile("${path.module}/scripts/install_elasticsearch_airgapped.sh", {
-    elasticsearch_version = var.elasticsearch_version
-    elastic_password      = random_password.elastic_password.result
-    cluster_name         = local.cluster_name_prefix
-    node_number          = count.index + 1
-    total_masters        = var.hot_node_count
-    master_ips           = local.master_ips
-    is_first_node        = count.index == 0 ? "true" : "false"
-    monitor_password     = random_password.monitor_password.result
-    ingest_password      = random_password.ingest_password.result
-    admin_password       = random_password.admin_password.result
-    dollar               = local.dollar
-  })
+  user_data = var.deployment_mode == "airgapped" ? templatefile(
+    "${path.module}/scripts/install_elasticsearch_airgapped.sh",
+    {
+      elasticsearch_version = var.elasticsearch_version
+      elastic_password      = random_password.elastic_password.result
+      cluster_name         = local.cluster_name_prefix
+      node_number          = count.index + 1
+      total_masters        = var.hot_node_count
+      master_ips           = local.master_ips
+      is_first_node        = count.index == 0 ? "true" : "false"
+      monitor_password     = random_password.monitor_password.result
+      ingest_password      = random_password.ingest_password.result
+      admin_password       = random_password.admin_password.result
+      dollar               = local.dollar
+    }
+    ) : templatefile(
+    "${path.module}/scripts/install_elasticsearch_networked.sh",
+    {
+      elasticsearch_version = var.elasticsearch_version
+      elastic_password      = random_password.elastic_password.result
+      cluster_name         = local.cluster_name_prefix
+      node_number          = count.index + 1
+      total_masters        = var.hot_node_count
+      master_ips           = local.master_ips
+      is_first_node        = count.index == 0 ? "true" : "false"
+      monitor_password     = random_password.monitor_password.result
+      ingest_password      = random_password.ingest_password.result
+      admin_password       = random_password.admin_password.result
+      dollar               = local.dollar
+    }
+  )
 
   tags = concat(
     keys(local.common_tags),
@@ -101,19 +119,37 @@ resource "digitalocean_droplet" "cold_node" {
     data.digitalocean_ssh_key.main.id
   ]
 
-  user_data = templatefile("${path.module}/scripts/install_elasticsearch_airgapped.sh", {
-    elasticsearch_version = var.elasticsearch_version
-    elastic_password      = random_password.elastic_password.result
-    cluster_name         = local.cluster_name_prefix
-    node_number          = 4
-    total_masters        = var.hot_node_count
-    master_ips           = local.master_ips
-    is_first_node        = "false"
-    monitor_password     = random_password.monitor_password.result
-    ingest_password      = random_password.ingest_password.result
-    admin_password       = random_password.admin_password.result
-    dollar               = local.dollar
-  })
+  user_data = var.deployment_mode == "airgapped" ? templatefile(
+    "${path.module}/scripts/install_elasticsearch_airgapped.sh",
+    {
+      elasticsearch_version = var.elasticsearch_version
+      elastic_password      = random_password.elastic_password.result
+      cluster_name         = local.cluster_name_prefix
+      node_number          = 4
+      total_masters        = var.hot_node_count
+      master_ips           = local.master_ips
+      is_first_node        = "false"
+      monitor_password     = random_password.monitor_password.result
+      ingest_password      = random_password.ingest_password.result
+      admin_password       = random_password.admin_password.result
+      dollar               = local.dollar
+    }
+    ) : templatefile(
+    "${path.module}/scripts/install_elasticsearch_networked.sh",
+    {
+      elasticsearch_version = var.elasticsearch_version
+      elastic_password      = random_password.elastic_password.result
+      cluster_name         = local.cluster_name_prefix
+      node_number          = 4
+      total_masters        = var.hot_node_count
+      master_ips           = local.master_ips
+      is_first_node        = "false"
+      monitor_password     = random_password.monitor_password.result
+      ingest_password      = random_password.ingest_password.result
+      admin_password       = random_password.admin_password.result
+      dollar               = local.dollar
+    }
+  )
 
   tags = concat(
     keys(local.common_tags),
@@ -137,19 +173,37 @@ resource "digitalocean_droplet" "frozen_node" {
     data.digitalocean_ssh_key.main.id
   ]
 
-  user_data = templatefile("${path.module}/scripts/install_elasticsearch_airgapped.sh", {
-    elasticsearch_version = var.elasticsearch_version
-    elastic_password      = random_password.elastic_password.result
-    cluster_name         = local.cluster_name_prefix
-    node_number          = 5
-    total_masters        = var.hot_node_count
-    master_ips           = local.master_ips
-    is_first_node        = "false"
-    monitor_password     = random_password.monitor_password.result
-    ingest_password      = random_password.ingest_password.result
-    admin_password       = random_password.admin_password.result
-    dollar               = local.dollar
-  })
+  user_data = var.deployment_mode == "airgapped" ? templatefile(
+    "${path.module}/scripts/install_elasticsearch_airgapped.sh",
+    {
+      elasticsearch_version = var.elasticsearch_version
+      elastic_password      = random_password.elastic_password.result
+      cluster_name         = local.cluster_name_prefix
+      node_number          = 5
+      total_masters        = var.hot_node_count
+      master_ips           = local.master_ips
+      is_first_node        = "false"
+      monitor_password     = random_password.monitor_password.result
+      ingest_password      = random_password.ingest_password.result
+      admin_password       = random_password.admin_password.result
+      dollar               = local.dollar
+    }
+    ) : templatefile(
+    "${path.module}/scripts/install_elasticsearch_networked.sh",
+    {
+      elasticsearch_version = var.elasticsearch_version
+      elastic_password      = random_password.elastic_password.result
+      cluster_name         = local.cluster_name_prefix
+      node_number          = 5
+      total_masters        = var.hot_node_count
+      master_ips           = local.master_ips
+      is_first_node        = "false"
+      monitor_password     = random_password.monitor_password.result
+      ingest_password      = random_password.ingest_password.result
+      admin_password       = random_password.admin_password.result
+      dollar               = local.dollar
+    }
+  )
 
   tags = concat(
     keys(local.common_tags),
@@ -164,7 +218,7 @@ resource "digitalocean_droplet" "frozen_node" {
 
 # Air-gapped package upload - Hot nodes
 resource "null_resource" "upload_packages_hot" {
-  count = var.hot_node_count
+  count = var.deployment_mode == "airgapped" ? var.hot_node_count : 0
 
   triggers = {
     droplet_id = digitalocean_droplet.hot_nodes[count.index].id
@@ -209,6 +263,8 @@ resource "null_resource" "upload_packages_hot" {
 
 # Air-gapped package upload - Cold node
 resource "null_resource" "upload_packages_cold" {
+  count = var.deployment_mode == "airgapped" ? 1 : 0
+
   triggers = {
     droplet_id = digitalocean_droplet.cold_node.id
   }
@@ -252,6 +308,8 @@ resource "null_resource" "upload_packages_cold" {
 
 # Air-gapped package upload - Frozen node
 resource "null_resource" "upload_packages_frozen" {
+  count = var.deployment_mode == "airgapped" ? 1 : 0
+
   triggers = {
     droplet_id = digitalocean_droplet.frozen_node.id
   }

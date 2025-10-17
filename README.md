@@ -1,8 +1,24 @@
-# 5-Node Elasticsearch Cluster on DigitalOcean (Air-Gapped)
+# 5-Node Elasticsearch Cluster on DigitalOcean
 
-Terraform configuration for deploying a production-ready, **air-gapped** Elasticsearch cluster on DigitalOcean with hot, cold, and frozen data tiers plus searchable snapshot repository.
+Terraform configuration for deploying a production-ready Elasticsearch cluster on DigitalOcean with hot, cold, and frozen data tiers plus searchable snapshot repository.
 
-**Key Feature**: This deployment is fully air-gapped - droplets do not require internet access during installation. All packages are pre-downloaded and uploaded via Terraform.
+## Deployment Modes
+
+This project supports **two deployment modes** via a single variable:
+
+### 1. Air-Gapped Mode (Default)
+- **Use when**: Droplets have no internet access, maximum security isolation
+- **How it works**: All packages pre-downloaded and uploaded via Terraform
+- **Components**: 5 Elasticsearch nodes + Kibana + EPR + Artifact Registry
+- **Setup**: Requires package download step before deployment
+
+### 2. Networked Mode
+- **Use when**: Droplets can access internet, faster deployment
+- **How it works**: Packages installed directly from Elastic repositories
+- **Components**: 5 Elasticsearch nodes + Kibana only
+- **Setup**: No package download required
+
+**Switch modes** by setting `deployment_mode = "networked"` in `terraform.tfvars`
 
 ## Architecture
 
@@ -13,6 +29,7 @@ Terraform configuration for deploying a production-ready, **air-gapped** Elastic
 - **DigitalOcean Spaces**: S3-compatible storage for searchable snapshots
 - **No Load Balancer**: Elasticsearch handles load balancing internally via coordinator nodes
 - **VPC**: Private network isolation for secure cluster communication
+- **Optional Data Sources**: Cribl Stream VMs for data routing and processing (disabled by default)
 
 ### Security Features (Enterprise-Grade)
 - **Certificate Authority**: Centralized CA with proper certificate chain
@@ -24,34 +41,49 @@ Terraform configuration for deploying a production-ready, **air-gapped** Elastic
 - **SSH Hardening**: Root disabled, non-root esadmin user only
 - **Keystore**: Sensitive data protection
 
-## Air-Gapped Deployment Overview
+## Deployment Process
 
-This configuration deploys Elasticsearch in an **air-gapped environment** where droplets have no internet access during installation. The deployment process:
+### Air-Gapped Mode
+Deploys Elasticsearch in an **air-gapped environment** where droplets have no internet access during installation:
 
 1. **Preparation Phase** (Internet-connected machine): Download all required packages
 2. **Upload Phase** (Terraform): Automatically upload packages to droplets
 3. **Installation Phase** (Droplets): Install from local packages without internet access
 
+### Networked Mode
+Deploys Elasticsearch with **internet access** for faster, simpler deployment:
+
+1. **Deployment Phase**: Terraform creates droplets
+2. **Installation Phase**: Droplets download and install packages from Elastic repositories
+3. **Configuration Phase**: Same security setup as air-gapped mode
+
 ## Prerequisites
 
-### Required
+### Required (Both Modes)
 
 1. DigitalOcean account with API token
-2. SSH key added to DigitalOcean account (for provisioning)
-3. SSH private key file locally (for package upload)
-4. Terraform >= 1.0
-5. **Internet connection on your local machine** (to download packages)
+2. SSH key added to DigitalOcean account
+3. Terraform >= 1.0
+4. DigitalOcean CLI (optional, for verification)
 
-### Optional
+### Additional Requirements by Mode
 
-- Docker (for automatic dependency download)
-- DigitalOcean CLI (for verification)
+**Air-Gapped Mode:**
+- SSH private key file locally (for package upload)
+- Internet connection on your local machine (to download packages)
+- Docker (optional, for automatic dependency download)
+
+**Networked Mode:**
+- Droplets need internet access (HTTP/HTTPS outbound)
+- No package download or SSH key requirements
 
 ## Setup Instructions
 
-### 1. Download Required Packages (Air-Gapped Preparation)
+### 1. Download Required Packages (Air-Gapped Mode Only)
 
-**This step must be completed on an internet-connected machine before deployment.**
+**Skip this step if using networked mode.**
+
+For air-gapped deployments, this step must be completed on an internet-connected machine before deployment.
 
 ```bash
 cd terraform/scripts
@@ -103,13 +135,14 @@ cp terraform.tfvars.example terraform.tfvars
 ```
 
 Edit `terraform.tfvars` with your values:
+- `deployment_mode`: Set to "airgapped" or "networked" (default: "airgapped")
 - `ssh_key_name`: Name of your SSH key in DigitalOcean (REQUIRED)
-- `ssh_private_key_path`: Path to your SSH private key file (default: `~/.ssh/id_rsa`)
+- `ssh_private_key_path`: Path to your SSH private key file (air-gapped only, default: `~/.ssh/id_rsa`)
 - `allowed_ips`: IPs allowed to access Elasticsearch API (RESTRICT IN PRODUCTION)
 - `allowed_ssh_ips`: IPs allowed SSH access (leave empty to use allowed_ips)
 - `region`: Choose your preferred DigitalOcean region
 
-**Important**: The `ssh_private_key_path` is used by Terraform to upload packages to droplets.
+**Important for Air-Gapped Mode**: The `ssh_private_key_path` is used by Terraform to upload packages to droplets.
 
 ### 4. Initialize and Deploy
 
@@ -126,13 +159,20 @@ terraform apply
 
 **What happens during deployment:**
 
-1. **Droplet Creation**: Creates 5 droplets (3 hot, 1 cold, 1 frozen) with VPC networking
-2. **Package Upload**: Terraform automatically uploads all packages from `terraform/packages/` to each droplet via SSH
-3. **Air-Gapped Installation**: Each droplet installs Elasticsearch from local packages without internet access
+**Air-Gapped Mode:**
+1. **Droplet Creation**: Creates 5 ES nodes + Kibana + EPR + Artifact Registry with VPC networking
+2. **Package Upload**: Terraform automatically uploads all packages via SSH
+3. **Local Installation**: Each droplet installs from local packages without internet access
 4. **Security Configuration**: Sets up TLS, RBAC, certificates, and audit logging
 5. **Cluster Formation**: Nodes discover each other and form a secure cluster
+   - Deployment time: ~15-20 minutes (including package upload)
 
-Deployment takes approximately 15-20 minutes (including package upload time).
+**Networked Mode:**
+1. **Droplet Creation**: Creates 5 ES nodes + Kibana with VPC networking
+2. **Internet Installation**: Droplets download packages from Elastic repositories
+3. **Security Configuration**: Sets up TLS, RBAC, certificates, and audit logging
+4. **Cluster Formation**: Nodes discover each other and form a secure cluster
+   - Deployment time: ~10-15 minutes (faster, no upload required)
 
 ### 5. Retrieve Cluster Credentials
 
@@ -190,6 +230,91 @@ sudo journalctl -u elasticsearch | grep -i "download\|internet\|http" || echo "N
 # Exit
 exit
 ```
+
+## Optional: Data Source VMs
+
+### Cribl Stream
+
+This project supports optional **Cribl Stream** VMs for advanced data routing, processing, and transformation before sending to Elasticsearch.
+
+#### What is Cribl Stream?
+
+Cribl Stream is a vendor-agnostic observability pipeline that allows you to:
+- Collect data from multiple sources (syslog, HEC, S3, etc.)
+- Route data to multiple destinations
+- Transform, enrich, and filter data in-flight
+- Reduce data volume and costs
+- Mask sensitive information (PII/PCI)
+
+#### Enable Cribl Stream
+
+Edit `terraform.tfvars`:
+```bash
+# Enable Cribl Stream
+cribl_stream_count = 1  # Create 1 Cribl Stream instance
+
+# Optional configuration:
+cribl_stream_node_size = "s-2vcpu-4gb"  # Recommended minimum
+cribl_stream_version   = "4.8.2"        # Version to install
+cribl_leader_mode      = "standalone"   # or "worker" for distributed mode
+```
+
+Then deploy:
+```bash
+terraform apply
+```
+
+#### Configure Cribl Stream
+
+After deployment:
+
+1. **Get Credentials** (Standalone mode):
+   ```bash
+   ssh cribladmin@<cribl-ip>
+   cat ~/cribl_credentials.txt
+   ```
+
+2. **Access Cribl UI**:
+   - URL: `http://<cribl-ip>:9000`
+   - Login with credentials from step 1
+
+3. **Configure Elasticsearch Destination**:
+   ```bash
+   ssh cribladmin@<cribl-ip>
+   ./configure_elasticsearch_destination.sh <admin_password>
+   ```
+
+4. **Configure Data Sources**:
+   - In Cribl UI, go to **Sources** → **Add Source**
+   - Available ports:
+     - **Syslog**: TCP/UDP 514
+     - **HEC** (HTTP Event Collector): TCP 8088
+     - **Raw TCP**: TCP 10001
+     - **S3**: TCP 10200 (internal)
+
+5. **Create Routes & Pipelines**:
+   - Go to **Routes** to define data flows
+   - Use **Pipelines** to transform data
+   - Reference: [Cribl Documentation](https://docs.cribl.io/)
+
+#### Worker Mode (Distributed Deployment)
+
+For distributed deployments with an external Cribl Leader:
+
+```bash
+cribl_stream_count = 3  # Create 3 workers
+cribl_leader_mode  = "worker"
+cribl_leader_url   = "https://your-leader:4200"
+cribl_auth_token   = "your-worker-auth-token"
+```
+
+Workers will automatically connect to the leader for centralized management.
+
+#### Deployment Modes
+
+Cribl Stream respects the `deployment_mode` variable:
+- **Air-gapped**: Cribl packages pre-downloaded and uploaded
+- **Networked**: Installed from Cribl repositories
 
 ## Post-Deployment Configuration
 
@@ -404,38 +529,78 @@ terraform destroy
 
 ## Cost Estimation
 
+### Base Deployment (Elasticsearch + Kibana)
+
 Monthly costs (approximate):
 - 3x Hot nodes (8GB): $48/month each = $144
 - 1x Cold node (2GB): $12/month
 - 1x Frozen node (2GB): $12/month
+- 1x Kibana (2GB): $12/month
 - Spaces storage: Variable based on usage
-- **Total**: ~$168/month + storage
+- **Total**: ~$180/month + storage
+
+### Air-Gapped Mode Additional Costs
+
+- 1x EPR (2GB): $12/month
+- 1x Artifact Registry (2GB): $12/month
+- **Additional Total**: ~$24/month
+
+### Optional Data Sources
+
+- **Cribl Stream** (per instance): $24/month (s-2vcpu-4gb)
+  - Example: 1 Cribl instance = +$24/month
+  - Example: 3 Cribl workers = +$72/month
+
+### Total Cost Examples
+
+1. **Networked Mode** (minimal): ~$180/month
+2. **Air-Gapped Mode**: ~$204/month
+3. **Networked + 1 Cribl**: ~$204/month
+4. **Air-Gapped + 1 Cribl**: ~$228/month
 
 **Note**: No load balancer cost - Elasticsearch handles load balancing internally
 
 ## Important Notes
 
-### Air-Gapped Deployment
-- **Droplets have NO internet access** during Elasticsearch installation
-- All packages are pre-downloaded and uploaded via Terraform
-- Elasticsearch version 9.1.5 (latest stable as of October 2025)
-- Manual package download required if Docker is unavailable
+### Deployment Modes
+
+**Air-Gapped Mode:**
+- Droplets have NO internet access during installation
+- All packages pre-downloaded and uploaded via Terraform
+- Includes EPR and Artifact Registry for Fleet
 - Package upload requires SSH access to droplets
+- Full isolation for maximum security
+
+**Networked Mode:**
+- Droplets require HTTP/HTTPS outbound access
+- Packages installed directly from Elastic repositories
+- Uses public EPR and artifact repositories
+- Faster deployment, simpler setup
+- No package download or upload required
+
+### Components by Mode
+
+**Air-Gapped Mode Components:**
+- 5-node Elasticsearch cluster (3 hot, 1 cold, 1 frozen)
+- Kibana web interface
+- Elastic Package Registry (EPR) - local server
+- Artifact Registry - local server for Fleet/Agent binaries
+- All components fully isolated from internet
+
+**Networked Mode Components:**
+- 5-node Elasticsearch cluster (3 hot, 1 cold, 1 frozen)
+- Kibana web interface
+- Uses public Elastic Package Registry (https://epr.elastic.co)
+- Uses public Elastic artifact repositories
 
 ### Security
 - Self-signed certificates are used; replace with CA-signed for production
 - SSH root access is disabled; use `esadmin` user
 - Firewall rules follow zero-trust/least-privilege principles
 - Regular password and API key rotation recommended
+- Both modes provide same security features (TLS, RBAC, audit logging)
 
 ### Backups
 - Regular snapshots to DigitalOcean Spaces recommended
 - Test restore procedures regularly
 - Consider additional backup strategies beyond snapshot repository
-
-### Phase 2 (Optional - Not Yet Implemented)
-This is Phase 1: Air-gapped Elasticsearch cluster only. Phase 2 would add:
-- Kibana
-- Elastic Package Registry (EPR)
-- Artifact Registry for Fleet/Agent
-- See `product-requirement-prompts.md` for Phase 2 details

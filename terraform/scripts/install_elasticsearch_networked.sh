@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-# AIR-GAPPED Elasticsearch Installation Script
-# This script installs Elasticsearch from local packages without internet access
-# Packages must be uploaded to /tmp/elasticsearch-install/ before running this script
+# NETWORKED Elasticsearch Installation Script
+# This script installs Elasticsearch from internet repositories
+# Droplets require internet access during installation
 
 # Variables passed from Terraform
 ES_VERSION="${elasticsearch_version}"
@@ -17,18 +17,12 @@ MONITOR_PASSWORD="${monitor_password}"
 INGEST_PASSWORD="${ingest_password}"
 ADMIN_PASSWORD="${admin_password}"
 
-# Paths
-INSTALL_DIR="/tmp/elasticsearch-install"
-ES_PKG_DIR="$${INSTALL_DIR}/elasticsearch"
-JAVA_PKG_DIR="$${INSTALL_DIR}/java"
-DEPS_PKG_DIR="$${INSTALL_DIR}/dependencies"
-
 # Logging
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
 }
 
-log "Starting air-gapped Elasticsearch installation..."
+log "Starting networked Elasticsearch installation from internet..."
 
 # Detect node type from hostname
 HOSTNAME=${dollar}(hostname)
@@ -44,57 +38,29 @@ fi
 
 log "Node type: $${NODE_ROLES}"
 
-# Verify packages directory exists
-if [ ! -d "$${INSTALL_DIR}" ]; then
-    log "ERROR: Installation directory not found: $${INSTALL_DIR}"
-    log "Packages must be uploaded before running this script"
-    exit 1
-fi
+# Update package lists
+log "Updating package lists..."
+apt-get update
 
-# Install system dependencies from local packages
-log "Installing system dependencies from local packages..."
-if [ -d "$${DEPS_PKG_DIR}" ] && [ "$(ls -A $${DEPS_PKG_DIR}/*.deb 2>/dev/null)" ]; then
-    cd "$${DEPS_PKG_DIR}"
-    dpkg -i *.deb 2>/dev/null || apt-get install -f -y --no-download
-    log "System dependencies installed"
-else
-    log "WARN: No system dependency packages found, attempting with existing system packages"
-fi
+# Install prerequisites
+log "Installing prerequisites..."
+apt-get install -y apt-transport-https wget gnupg
 
-# Install Java from local packages
-log "Installing Java from local packages..."
-if [ -d "$${JAVA_PKG_DIR}" ] && [ "$(ls -A $${JAVA_PKG_DIR}/*.deb 2>/dev/null)" ]; then
-    cd "$${JAVA_PKG_DIR}"
-    dpkg -i *.deb 2>/dev/null || apt-get install -f -y --no-download
-    log "Java installed successfully"
-else
-    log "ERROR: Java packages not found in $${JAVA_PKG_DIR}"
-    exit 1
-fi
+# Add Elasticsearch GPG key
+log "Adding Elasticsearch GPG key..."
+wget -qO - https://artifacts.elastic.co/GPG-KEY-elasticsearch | gpg --dearmor -o /usr/share/keyrings/elasticsearch-keyring.gpg
 
-# Verify Java installation
-if ! java -version 2>&1 | grep -q "openjdk"; then
-    log "ERROR: Java installation failed"
-    exit 1
-fi
-log "Java version: $(java -version 2>&1 | head -n 1)"
+# Add Elasticsearch repository
+log "Adding Elasticsearch repository..."
+echo "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://artifacts.elastic.co/packages/9.x/apt stable main" | tee /etc/apt/sources.list.d/elastic-9.x.list
 
-# Install Elasticsearch from local package
-log "Installing Elasticsearch from local package..."
-if [ -d "$${ES_PKG_DIR}" ]; then
-    ES_DEB=$(find "$${ES_PKG_DIR}" -name "elasticsearch-*.deb" | head -n 1)
-    if [ -f "$${ES_DEB}" ]; then
-        log "Found Elasticsearch package: $${ES_DEB}"
-        dpkg -i "$${ES_DEB}" 2>/dev/null || apt-get install -f -y --no-download
-        log "Elasticsearch installed successfully"
-    else
-        log "ERROR: Elasticsearch DEB package not found in $${ES_PKG_DIR}"
-        exit 1
-    fi
-else
-    log "ERROR: Elasticsearch package directory not found"
-    exit 1
-fi
+# Update package lists with new repository
+log "Updating package lists with Elasticsearch repository..."
+apt-get update
+
+# Install Elasticsearch
+log "Installing Elasticsearch version $${ES_VERSION}..."
+apt-get install -y elasticsearch=$${ES_VERSION}
 
 # Verify Elasticsearch installation
 if ! systemctl list-unit-files | grep -q elasticsearch.service; then
@@ -322,7 +288,7 @@ if [[ "$$IS_FIRST_NODE" == "true" ]]; then
   log "Built-in user passwords configured"
 fi
 
-# Create RBAC setup script (same as original)
+# Create RBAC setup script
 cat > /home/esadmin/setup_rbac.sh << 'SCRIPT'
 #!/bin/bash
 set -e
@@ -518,7 +484,7 @@ if [[ "$$IS_FIRST_NODE" == "true" ]]; then
   sudo -u esadmin /home/esadmin/setup_rbac.sh "$$ELASTIC_PASSWORD" "$$MONITOR_PASSWORD" "$$INGEST_PASSWORD" "$$ADMIN_PASSWORD"
 fi
 
-# Create snapshot repository configuration script (same as original)
+# Create snapshot repository configuration script
 cat > /home/esadmin/configure_snapshot_repo.sh << 'SCRIPT'
 #!/bin/bash
 # This script should be run after the cluster is fully formed
@@ -563,7 +529,7 @@ SCRIPT
 chmod +x /home/esadmin/configure_snapshot_repo.sh
 chown esadmin:esadmin /home/esadmin/configure_snapshot_repo.sh
 
-# Create security validation script (same as original)
+# Create security validation script
 cat > /home/esadmin/validate_security.sh << 'SCRIPT'
 #!/bin/bash
 
@@ -600,12 +566,8 @@ SCRIPT
 chmod +x /home/esadmin/validate_security.sh
 chown esadmin:esadmin /home/esadmin/validate_security.sh
 
-# Clean up installation packages
-log "Cleaning up installation packages..."
-rm -rf "$${INSTALL_DIR}"
-
 log "========================================="
-log "Air-gapped Elasticsearch installation complete!"
+log "Networked Elasticsearch installation complete!"
 log "========================================="
 log "Cluster: $${CLUSTER_NAME}"
 log "Node: $${HOSTNAME}"

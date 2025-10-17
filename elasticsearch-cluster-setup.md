@@ -20,11 +20,12 @@
 4. [API Keys Configuration](#api-keys-configuration)
 5. [Index Mapping](#index-mapping)
 6. [Index Lifecycle Management (ILM)](#index-lifecycle-management-ilm)
-7. [Data Views](#data-views)
-8. [Kibana Spaces](#kibana-spaces)
-9. [Fleet Configuration](#fleet-configuration)
-10. [Elastic Agent Deployment](#elastic-agent-deployment)
-11. [References](#references)
+7. [Customizing Built-in logs-* Templates with Custom ILM Policies](#customizing-built-in-logs--templates-with-custom-ilm-policies)
+8. [Data Views](#data-views)
+9. [Kibana Spaces](#kibana-spaces)
+10. [Fleet Configuration](#fleet-configuration)
+11. [Elastic Agent Deployment](#elastic-agent-deployment)
+12. [References](#references)
 
 ## Current Implementation Security Features
 
@@ -535,6 +536,285 @@ PUT security-events-*/_settings
 ```
 
 **Documentation:** https://www.elastic.co/guide/en/elasticsearch/reference/current/index-lifecycle-management.html
+
+## Customizing Built-in logs-* Templates with Custom ILM Policies
+
+### Best Practice Overview
+
+Elasticsearch provides managed templates and ILM policies for data streams like `logs-*-*`. To customize these without breaking managed templates, follow the recommended `logs@custom` component template approach.
+
+**Important Warning:** Never edit managed policies directly. Changes to managed policies might be rolled back or overwritten during Elasticsearch updates.
+
+### Step 1: Create a Custom ILM Policy
+
+#### Via Kibana UI (Recommended):
+1. Navigate to **Stack Management > Index Lifecycle Policies**
+2. Toggle **Include managed system policies** (to see `logs@lifecycle`)
+3. Select the `logs@lifecycle` policy
+4. Review the default settings:
+   - Rollover when primary shard reaches 50GB or index is 30 days old
+   - Configurable hot, warm, cold, frozen, and delete phases
+5. Click **Edit policy**
+6. Toggle **Save as new policy**
+7. Provide a new name (e.g., `logs-custom`)
+8. Customize the phases as needed:
+
+```bash
+# Example custom policy settings
+PUT _ilm/policy/logs-custom
+{
+  "policy": {
+    "phases": {
+      "hot": {
+        "min_age": "0ms",
+        "actions": {
+          "rollover": {
+            "max_primary_shard_size": "50GB",
+            "max_age": "30d"
+          },
+          "set_priority": {
+            "priority": 100
+          }
+        }
+      },
+      "warm": {
+        "min_age": "30d",
+        "actions": {
+          "set_priority": {
+            "priority": 50
+          },
+          "shrink": {
+            "number_of_shards": 1
+          },
+          "forcemerge": {
+            "max_num_segments": 1
+          }
+        }
+      },
+      "delete": {
+        "min_age": "90d",
+        "actions": {
+          "delete": {}
+        }
+      }
+    }
+  }
+}
+```
+
+#### Via REST API:
+If you copied a managed policy, use the API to modify the `_meta.managed` parameter:
+
+```bash
+PUT _ilm/policy/logs-custom
+{
+  "policy": {
+    "_meta": {
+      "managed": false,
+      "description": "Custom ILM policy for logs data streams"
+    },
+    "phases": {
+      "hot": { /* ... */ },
+      "warm": { /* ... */ },
+      "delete": { /* ... */ }
+    }
+  }
+}
+```
+
+### Step 2: Create the logs@custom Component Template
+
+The `logs@custom` component template allows you to customize settings of managed index templates without overriding them. This template is automatically picked up by the `logs` index template.
+
+**Prerequisites:** Available in Elasticsearch 8.13 and later.
+
+#### Via Kibana UI:
+1. Navigate to **Stack Management > Index Management > Component Templates**
+2. Click **Create component template**
+3. Under **Logistics**, name the component template: `logs@custom`
+4. Add a description: "Custom ILM policy and settings for logs data streams"
+5. Under **Index settings**, add your custom ILM policy:
+
+```json
+{
+  "index": {
+    "lifecycle": {
+      "name": "logs-custom"
+    }
+  }
+}
+```
+
+6. (Optional) Add any other custom settings:
+
+```json
+{
+  "index": {
+    "lifecycle": {
+      "name": "logs-custom"
+    },
+    "number_of_replicas": 1,
+    "codec": "best_compression"
+  }
+}
+```
+
+7. Click **Next** through mappings and aliases (leave default or customize)
+8. Review and click **Create component template**
+
+#### Via REST API:
+
+```bash
+PUT _component_template/logs@custom
+{
+  "template": {
+    "settings": {
+      "index": {
+        "lifecycle": {
+          "name": "logs-custom"
+        }
+      }
+    }
+  },
+  "_meta": {
+    "description": "Custom ILM policy for all logs data streams"
+  }
+}
+```
+
+### Step 3: Verify the Component Template is Applied
+
+Check that the `logs@custom` component template is properly integrated:
+
+```bash
+# View the logs index template
+GET _index_template/logs
+
+# Verify logs@custom appears in the composed_of array
+# Expected output should include:
+# "composed_of": [
+#   "logs@settings",
+#   "logs@custom",     <-- Should appear here
+#   "ecs@mappings",
+#   ...
+# ]
+```
+
+Or verify via Kibana:
+1. Navigate to **Stack Management > Index Management > Index Templates**
+2. Click on the `logs` index template
+3. Verify `logs@custom` appears in the **Component templates** list
+
+### Step 4: Apply Changes to Existing Data Streams
+
+**Important:** New ILM policies only apply to newly created indices. You have two options:
+
+#### Option A: Wait for Automatic Rollover
+Wait for natural rollover to occur (when indices reach 50GB or 30 days old, based on your policy).
+
+#### Option B: Force Immediate Rollover (Recommended)
+Force rollover on existing data streams to immediately apply the new policy:
+
+```bash
+# List all logs data streams
+GET _data_stream/logs-*
+
+# Force rollover on specific data stream
+POST /logs-system.auth-default/_rollover/
+
+# Force rollover on all logs data streams (use with caution)
+# You can script this or use Kibana Dev Tools
+POST /logs-system.syslog-default/_rollover/
+POST /logs-elastic_agent-default/_rollover/
+POST /logs-elastic_agent.filebeat-default/_rollover/
+# ... repeat for each data stream
+```
+
+To rollover all logs data streams programmatically:
+
+```bash
+# Get list of all logs data streams and rollover each
+curl -X GET "https://localhost:9200/_data_stream/logs-*" | \
+  jq -r '.data_streams[].name' | \
+  while read ds; do
+    echo "Rolling over: $ds"
+    curl -X POST "https://localhost:9200/$ds/_rollover/"
+  done
+```
+
+### Step 5: Verify the Policy is Applied
+
+Check that new indices are using your custom policy:
+
+```bash
+# Check a specific index's ILM policy
+GET logs-system.auth-default-000002/_settings
+
+# Should show:
+# "settings": {
+#   "index": {
+#     "lifecycle": {
+#       "name": "logs-custom"
+#     }
+#   }
+# }
+
+# View ILM explain for detailed policy execution status
+GET logs-*/_ilm/explain
+```
+
+### Alternative: Apply Custom ILM to Specific Integration
+
+If you want to apply a custom ILM policy to only specific integrations (not all logs), create a custom index template instead:
+
+```bash
+PUT _index_template/logs-system-custom
+{
+  "index_patterns": ["logs-system.*-*"],
+  "priority": 250,
+  "composed_of": [
+    "logs@settings",
+    "logs@mappings"
+  ],
+  "template": {
+    "settings": {
+      "index.lifecycle.name": "logs-system-custom"
+    }
+  }
+}
+```
+
+**Note:** Set priority higher than the default `logs` template (typically 200) to ensure your custom template takes precedence.
+
+### Monitoring and Troubleshooting
+
+Monitor ILM policy execution:
+
+```bash
+# Check ILM status
+GET _ilm/status
+
+# View detailed ILM explain for all logs indices
+GET logs-*/_ilm/explain?human
+
+# Check for ILM errors
+GET logs-*/_ilm/explain?only_errors=true
+
+# View ILM history for a specific index
+GET logs-system.auth-default-000001
+```
+
+### Common Pitfalls to Avoid
+
+1. **Editing Managed Policies:** Always create a new policy rather than editing `logs@lifecycle` directly
+2. **Forgetting to Rollover:** Remember that existing indices keep their old policy until rollover
+3. **Component Template Naming:** The template must be named exactly `logs@custom` (for metrics, use `metrics@custom`)
+4. **Priority Conflicts:** If using custom index templates, ensure priority is higher than default templates
+5. **Version Requirements:** The `*@custom` component template feature requires Elasticsearch 8.13+
+
+**Documentation:**
+- https://www.elastic.co/guide/en/elasticsearch/reference/current/example-using-index-lifecycle-policy.html
+- https://www.elastic.co/guide/en/fleet/current/data-streams-ilm-tutorial.html
 
 ## Data Views
 
