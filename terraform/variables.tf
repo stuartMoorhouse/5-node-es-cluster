@@ -144,13 +144,13 @@ variable "deployment_type" {
 }
 
 variable "deployment_mode" {
-  description = "Installation mode for self-managed: 'airgapped' (packages pre-downloaded) or 'normal' (install from internet)"
+  description = "Deployment mode: 'airgapped' (self-managed, no internet), 'networked' (self-managed, internet access), 'cloud_hosted' (Elastic Cloud hosted), 'cloud_serverless' (Elastic Cloud serverless)"
   type        = string
-  default     = "normal"
+  default     = "networked"
 
   validation {
-    condition     = contains(["airgapped", "normal"], var.deployment_mode)
-    error_message = "deployment_mode must be either 'airgapped' or 'normal'"
+    condition     = contains(["airgapped", "networked", "cloud_hosted", "cloud_serverless"], var.deployment_mode)
+    error_message = "deployment_mode must be 'airgapped', 'networked', 'cloud_hosted', or 'cloud_serverless'"
   }
 }
 

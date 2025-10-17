@@ -40,8 +40,10 @@ frozen_node_size = "s-1vcpu-2gb"  # 2GB RAM (~$12/month)
 elasticsearch_version = "9.1.5"
 
 # Deployment Mode
-# "airgapped" - Pre-download packages and upload via Terraform (no internet required on droplets)
-# "normal"    - Install packages directly from internet repositories (droplets need internet access)
+# "airgapped"        - Self-managed: Pre-download packages and upload via Terraform (no internet required on droplets)
+# "networked"        - Self-managed: Install packages directly from internet repositories (droplets need internet access)
+# "cloud_hosted"     - Elastic Cloud hosted deployment
+# "cloud_serverless" - Elastic Cloud serverless deployment
 deployment_mode = "airgapped"
 
 # Security Configuration
