@@ -4,8 +4,8 @@ resource "digitalocean_firewall" "elasticsearch" {
 
   droplet_ids = concat(
     digitalocean_droplet.hot_nodes[*].id,
-    [digitalocean_droplet.cold_node.id],
-    [digitalocean_droplet.frozen_node.id]
+    var.enable_cold_tier ? digitalocean_droplet.cold_node[*].id : [],
+    var.enable_frozen_tier ? digitalocean_droplet.frozen_node[*].id : []
   )
 
   # INBOUND RULES
@@ -17,12 +17,12 @@ resource "digitalocean_firewall" "elasticsearch" {
     source_addresses = var.allowed_ssh_ips != [] ? var.allowed_ssh_ips : var.allowed_ips
   }
 
-  # Allow Elasticsearch HTTPS API access from allowed IPs
+  # Allow Elasticsearch HTTPS API access from allowed IPs AND VPC (for Kibana, Cribl, etc.)
   # Hot nodes act as coordinators and handle load balancing internally
   inbound_rule {
     protocol         = "tcp"
     port_range       = "9200"
-    source_addresses = var.allowed_ips
+    source_addresses = concat(var.allowed_ips, [digitalocean_vpc.elasticsearch.ip_range])
   }
 
   # Allow Elasticsearch transport protocol between nodes (internal only)
@@ -203,7 +203,7 @@ resource "digitalocean_firewall" "elastic_services" {
 
 # Firewall for Data Source VMs (Cribl Stream)
 resource "digitalocean_firewall" "cribl_stream" {
-  count = var.cribl_stream_count > 0 ? 1 : 0
+  count = local.actual_cribl_count > 0 ? 1 : 0
 
   name = "${local.cluster_name_prefix}-cribl-firewall"
 

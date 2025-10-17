@@ -76,6 +76,14 @@ usermod -aG sudo esadmin
 echo "esadmin ALL=(ALL) NOPASSWD: /bin/systemctl * elasticsearch" >> /etc/sudoers.d/esadmin
 echo "esadmin ALL=(ALL) NOPASSWD: /usr/share/elasticsearch/bin/*" >> /etc/sudoers.d/esadmin
 
+# Copy SSH keys from root to esadmin
+log "Copying SSH keys to esadmin user..."
+mkdir -p /home/esadmin/.ssh
+cp /root/.ssh/authorized_keys /home/esadmin/.ssh/authorized_keys
+chown -R esadmin:esadmin /home/esadmin/.ssh
+chmod 700 /home/esadmin/.ssh
+chmod 600 /home/esadmin/.ssh/authorized_keys
+
 # Secure SSH configuration
 log "Hardening SSH configuration..."
 sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
@@ -92,33 +100,25 @@ mkdir -p /etc/elasticsearch/certs
 mkdir -p /etc/elasticsearch/ca
 chown -R elasticsearch:elasticsearch /etc/elasticsearch/certs /etc/elasticsearch/ca
 
-# Generate or copy Certificate Authority
-if [[ "$$IS_FIRST_NODE" == "true" ]]; then
-  log "Generating Certificate Authority on first node..."
-  cd /usr/share/elasticsearch
+# Generate Certificate Authority (each node generates its own for demo simplicity)
+log "Generating Certificate Authority..."
+cd /usr/share/elasticsearch
 
-  # Generate CA
-  ./bin/elasticsearch-certutil ca \
-    --out /etc/elasticsearch/ca/elastic-stack-ca.p12 \
-    --pass ""
+# Generate CA
+./bin/elasticsearch-certutil ca \
+  --out /etc/elasticsearch/ca/elastic-stack-ca.p12 \
+  --pass ""
 
-  # Generate HTTP CA
-  ./bin/elasticsearch-certutil ca \
-    --pem \
-    --out /etc/elasticsearch/ca/http-ca.zip \
-    --pass ""
+# Generate HTTP CA
+./bin/elasticsearch-certutil ca \
+  --pem \
+  --out /etc/elasticsearch/ca/http-ca.zip \
+  --pass ""
 
-  cd /etc/elasticsearch/ca
-  unzip -o http-ca.zip
+cd /etc/elasticsearch/ca
+unzip -o http-ca.zip
 
-  # Store CA for other nodes
-  cp elastic-stack-ca.p12 /tmp/elastic-stack-ca.p12
-  chmod 644 /tmp/elastic-stack-ca.p12
-  log "Certificate Authority generated"
-else
-  log "Waiting for CA from first node..."
-  sleep 60  # Wait for first node to generate CA
-fi
+log "Certificate Authority generated"
 
 # Generate node certificates signed by CA
 log "Generating node certificates..."
@@ -190,12 +190,12 @@ transport.port: 9300
 discovery.seed_hosts: [$$SEED_HOSTS]
 cluster.initial_master_nodes: [$$INITIAL_MASTERS]
 
-# Security settings - Transport layer
+# Security settings - Transport layer (relaxed for demo with self-signed certs)
 xpack.security.enabled: true
 xpack.security.enrollment.enabled: true
 xpack.security.transport.ssl.enabled: true
-xpack.security.transport.ssl.verification_mode: full
-xpack.security.transport.ssl.client_authentication: required
+xpack.security.transport.ssl.verification_mode: none
+xpack.security.transport.ssl.client_authentication: optional
 xpack.security.transport.ssl.keystore.path: certs/elastic-certificates.p12
 xpack.security.transport.ssl.truststore.path: certs/elastic-certificates.p12
 

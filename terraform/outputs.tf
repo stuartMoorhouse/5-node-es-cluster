@@ -46,19 +46,19 @@ output "hot_node_ips" {
 }
 
 output "cold_node_ip" {
-  description = "IP address of cold node"
-  value = {
-    public  = digitalocean_droplet.cold_node.ipv4_address
-    private = digitalocean_droplet.cold_node.ipv4_address_private
-  }
+  description = "IP address of cold node (if enabled)"
+  value = var.enable_cold_tier ? {
+    public  = digitalocean_droplet.cold_node[0].ipv4_address
+    private = digitalocean_droplet.cold_node[0].ipv4_address_private
+  } : "Not deployed (enable_cold_tier = false)"
 }
 
 output "frozen_node_ip" {
-  description = "IP address of frozen node"
-  value = {
-    public  = digitalocean_droplet.frozen_node.ipv4_address
-    private = digitalocean_droplet.frozen_node.ipv4_address_private
-  }
+  description = "IP address of frozen node (if enabled)"
+  value = var.enable_frozen_tier ? {
+    public  = digitalocean_droplet.frozen_node[0].ipv4_address
+    private = digitalocean_droplet.frozen_node[0].ipv4_address_private
+  } : "Not deployed (enable_frozen_tier = false)"
 }
 
 output "spaces_bucket_name" {
@@ -89,13 +89,13 @@ output "ssh_command_hot_nodes" {
 }
 
 output "ssh_command_cold_node" {
-  description = "SSH command to connect to cold node (use esadmin user)"
-  value       = "ssh esadmin@${digitalocean_droplet.cold_node.ipv4_address}"
+  description = "SSH command to connect to cold node (use esadmin user, if enabled)"
+  value       = var.enable_cold_tier ? "ssh esadmin@${digitalocean_droplet.cold_node[0].ipv4_address}" : "Not deployed (enable_cold_tier = false)"
 }
 
 output "ssh_command_frozen_node" {
-  description = "SSH command to connect to frozen node (use esadmin user)"
-  value       = "ssh esadmin@${digitalocean_droplet.frozen_node.ipv4_address}"
+  description = "SSH command to connect to frozen node (use esadmin user, if enabled)"
+  value       = var.enable_frozen_tier ? "ssh esadmin@${digitalocean_droplet.frozen_node[0].ipv4_address}" : "Not deployed (enable_frozen_tier = false)"
 }
 
 output "security_notes" {
@@ -172,74 +172,35 @@ output "artifact_registry_ip" {
 
 output "elastic_services_notes" {
   description = "Kibana, EPR, and Artifact Registry configuration notes"
-  value = var.deployment_mode == "airgapped" ? <<-EOT
-    ===== ELASTIC SERVICES CONFIGURATION (AIR-GAPPED) =====
+  value = <<-EOT
+===== ELASTIC SERVICES CONFIGURATION =====
 
-    Deployment Mode: Air-Gapped
+Deployment Mode: ${var.deployment_mode == "airgapped" ? "Air-Gapped" : "Networked"}
 
-    1. Kibana Access:
-       URL: http://${digitalocean_droplet.kibana.ipv4_address}:5601
-       Username: elastic
-       Password: <use elasticsearch_password output>
+1. Kibana Access:
+   URL: http://${digitalocean_droplet.kibana.ipv4_address}:5601
+   Username: elastic
+   Password: <use elasticsearch_password output>
 
-    2. Configure Fleet (after Kibana starts):
-       ssh esadmin@${digitalocean_droplet.kibana.ipv4_address}
-       ./configure_fleet.sh <elastic_password>
+2. Configure Fleet (after Kibana starts):
+   ssh esadmin@${digitalocean_droplet.kibana.ipv4_address}
+   ./configure_fleet.sh <elastic_password>
 
-    3. EPR (Internal Only):
-       URL: http://${digitalocean_droplet.epr[0].ipv4_address_private}:8443
-       Health: http://${digitalocean_droplet.epr[0].ipv4_address_private}:8443/health
+${var.deployment_mode == "airgapped" ? "3. EPR (Internal Only):\n   URL: http://${digitalocean_droplet.epr[0].ipv4_address_private}:8443\n   Health: http://${digitalocean_droplet.epr[0].ipv4_address_private}:8443/health\n\n4. Artifact Registry (Internal Only):\n   URL: http://${digitalocean_droplet.artifact_registry[0].ipv4_address_private}:9080\n   Used by Fleet for agent binaries\n\n5. Add Artifacts:\n   ssh esadmin@${digitalocean_droplet.artifact_registry[0].ipv4_address}\n   See: ~/README_ARTIFACTS.md" : "3. Package Registry:\n   Uses public Elastic Package Registry: https://epr.elastic.co\n   No local EPR server needed\n\n4. Agent Artifacts:\n   Elastic Agents download binaries from public repositories\n   No local artifact registry needed\n\nNote: This deployment requires internet connectivity for:\n- Downloading Elastic packages during installation\n- Fleet Package Registry access\n- Elastic Agent binary downloads"}
 
-    4. Artifact Registry (Internal Only):
-       URL: http://${digitalocean_droplet.artifact_registry[0].ipv4_address_private}:9080
-       Used by Fleet for agent binaries
-
-    5. Add Artifacts:
-       ssh esadmin@${digitalocean_droplet.artifact_registry[0].ipv4_address}
-       See: ~/README_ARTIFACTS.md
-
-    ========================================================
-  EOT
-  : <<-EOT
-    ===== ELASTIC SERVICES CONFIGURATION (NETWORKED) =====
-
-    Deployment Mode: Networked
-
-    1. Kibana Access:
-       URL: http://${digitalocean_droplet.kibana.ipv4_address}:5601
-       Username: elastic
-       Password: <use elasticsearch_password output>
-
-    2. Configure Fleet (after Kibana starts):
-       ssh esadmin@${digitalocean_droplet.kibana.ipv4_address}
-       ./configure_fleet.sh <elastic_password>
-
-    3. Package Registry:
-       Uses public Elastic Package Registry: https://epr.elastic.co
-       No local EPR server needed
-
-    4. Agent Artifacts:
-       Elastic Agents download binaries from public repositories
-       No local artifact registry needed
-
-    Note: This deployment requires internet connectivity for:
-    - Downloading Elastic packages during installation
-    - Fleet Package Registry access
-    - Elastic Agent binary downloads
-
-    ======================================================
-  EOT
+========================================================
+EOT
 }
 
 # Data Source Outputs - Cribl Stream
 output "cribl_stream_urls" {
   description = "URLs to access Cribl Stream UI"
-  value       = var.cribl_stream_count > 0 ? [for node in digitalocean_droplet.cribl_stream : "http://${node.ipv4_address}:9000"] : []
+  value       = local.actual_cribl_count > 0 ? [for node in digitalocean_droplet.cribl_stream : "http://${node.ipv4_address}:9000"] : []
 }
 
 output "cribl_stream_ips" {
   description = "IP addresses of Cribl Stream nodes"
-  value = var.cribl_stream_count > 0 ? {
+  value = local.actual_cribl_count > 0 ? {
     public  = digitalocean_droplet.cribl_stream[*].ipv4_address
     private = digitalocean_droplet.cribl_stream[*].ipv4_address_private
   } : {}
@@ -247,42 +208,33 @@ output "cribl_stream_ips" {
 
 output "cribl_stream_ssh_commands" {
   description = "SSH commands to connect to Cribl Stream nodes (use cribladmin user)"
-  value       = var.cribl_stream_count > 0 ? [for i, ip in digitalocean_droplet.cribl_stream[*].ipv4_address : "ssh cribladmin@${ip}"] : []
+  value       = local.actual_cribl_count > 0 ? [for i, ip in digitalocean_droplet.cribl_stream[*].ipv4_address : "ssh cribladmin@${ip}"] : []
 }
 
 output "cribl_stream_notes" {
   description = "Cribl Stream configuration notes"
-  value = var.cribl_stream_count > 0 ? <<-EOT
-    ===== CRIBL STREAM CONFIGURATION =====
-
-    Deployed: ${var.cribl_stream_count} Cribl Stream node(s)
-    Mode: ${var.cribl_leader_mode}
-
-    1. Access Cribl UI:
-       ${join("\n       ", [for i, node in digitalocean_droplet.cribl_stream : "Node ${i + 1}: http://${node.ipv4_address}:9000"])}
-
-    2. Get Credentials (Standalone mode):
-       ${join("\n       ", [for i, ip in digitalocean_droplet.cribl_stream[*].ipv4_address : "ssh cribladmin@${ip} && cat ~/cribl_credentials.txt"])}
-
-    3. Configure Elasticsearch Destination:
-       ssh cribladmin@<cribl-ip>
-       ./configure_elasticsearch_destination.sh <admin_password>
-
-    4. Data Input Ports:
-       - Syslog TCP/UDP: 514
-       - HEC (HTTP Event Collector): 8088
-       - Raw TCP: 10001
-       - S3: 10200 (internal)
-
-    5. Elasticsearch Connection:
-       - Destination URL: ${digitalocean_droplet.hot_nodes[0].ipv4_address_private}:9200
-       - Username: ingest
-       - Password: <use ingest_password output>
-
-    Note: Configure routes and pipelines via Cribl UI
-    SSH access restricted to cribladmin user
-
-    ======================================
-  EOT
-  : "No Cribl Stream nodes deployed (set cribl_stream_count > 0 to enable)"
+  value = local.actual_cribl_count > 0 ? join("", [
+    "===== CRIBL STREAM CONFIGURATION =====\n\n",
+    "Deployed: ${local.actual_cribl_count} Cribl Stream node(s)\n",
+    "Mode: ${var.cribl_leader_mode}\n\n",
+    "1. Access Cribl UI:\n   ",
+    join("\n   ", [for i, node in digitalocean_droplet.cribl_stream : "Node ${i + 1}: http://${node.ipv4_address}:9000"]),
+    "\n\n2. Get Credentials (Standalone mode):\n   ",
+    join("\n   ", [for i, ip in digitalocean_droplet.cribl_stream[*].ipv4_address : "ssh cribladmin@${ip} && cat ~/cribl_credentials.txt"]),
+    "\n\n3. Configure Elasticsearch Destination:\n",
+    "   ssh cribladmin@<cribl-ip>\n",
+    "   ./configure_elasticsearch_destination.sh <admin_password>\n\n",
+    "4. Data Input Ports:\n",
+    "   - Syslog TCP/UDP: 514\n",
+    "   - HEC (HTTP Event Collector): 8088\n",
+    "   - Raw TCP: 10001\n",
+    "   - S3: 10200 (internal)\n\n",
+    "5. Elasticsearch Connection:\n",
+    "   - Destination URL: ${digitalocean_droplet.hot_nodes[0].ipv4_address_private}:9200\n",
+    "   - Username: ingest\n",
+    "   - Password: <use ingest_password output>\n\n",
+    "Note: Configure routes and pipelines via Cribl UI\n",
+    "SSH access restricted to cribladmin user\n\n",
+    "======================================"
+  ]) : "No Cribl Stream nodes deployed (set data_source_type='cribl' to enable)"
 }

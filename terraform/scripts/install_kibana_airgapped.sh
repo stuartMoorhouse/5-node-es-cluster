@@ -51,6 +51,14 @@ useradd -m -s /bin/bash esadmin || true
 usermod -aG sudo esadmin
 echo "esadmin ALL=(ALL) NOPASSWD: /bin/systemctl * kibana" >> /etc/sudoers.d/esadmin
 
+# Copy SSH keys from root to esadmin
+log "Copying SSH keys to esadmin user..."
+mkdir -p /home/esadmin/.ssh
+cp /root/.ssh/authorized_keys /home/esadmin/.ssh/authorized_keys
+chown -R esadmin:esadmin /home/esadmin/.ssh
+chmod 700 /home/esadmin/.ssh
+chmod 600 /home/esadmin/.ssh/authorized_keys
+
 # Secure SSH
 log "Hardening SSH configuration..."
 sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config

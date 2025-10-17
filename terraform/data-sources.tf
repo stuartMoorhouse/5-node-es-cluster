@@ -1,9 +1,10 @@
 # Data Source VMs - Cribl Stream
 # Optional VMs for sending data to Elasticsearch via Cribl Stream
+# Note: actual_cribl_count is calculated in main.tf locals
 
 # Cribl Stream droplets
 resource "digitalocean_droplet" "cribl_stream" {
-  count = var.cribl_stream_count
+  count = local.actual_cribl_count
 
   name   = "${local.cluster_name_prefix}-cribl-${count.index + 1}"
   region = var.region
@@ -51,7 +52,7 @@ resource "digitalocean_droplet" "cribl_stream" {
 
 # Air-gapped package upload - Cribl Stream nodes
 resource "null_resource" "upload_packages_cribl" {
-  count = var.deployment_mode == "airgapped" && var.cribl_stream_count > 0 ? var.cribl_stream_count : 0
+  count = var.deployment_mode == "airgapped" && local.actual_cribl_count > 0 ? local.actual_cribl_count : 0
 
   triggers = {
     droplet_id = digitalocean_droplet.cribl_stream[count.index].id

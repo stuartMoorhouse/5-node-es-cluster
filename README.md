@@ -1,32 +1,33 @@
-# 5-Node Elasticsearch Cluster on DigitalOcean
+# Elasticsearch Cluster on DigitalOcean
 
-Terraform configuration for deploying a production-ready Elasticsearch cluster on DigitalOcean with hot, cold, and frozen data tiers plus searchable snapshot repository.
+Terraform configuration for deploying a flexible, production-ready Elasticsearch cluster on DigitalOcean with configurable node count, optional data tiers, and searchable snapshot repository.
 
 ## Deployment Modes
 
 This project supports **two deployment modes** via a single variable:
 
-### 1. Air-Gapped Mode (Default)
-- **Use when**: Droplets have no internet access, maximum security isolation
-- **How it works**: All packages pre-downloaded and uploaded via Terraform
-- **Components**: 5 Elasticsearch nodes + Kibana + EPR + Artifact Registry
-- **Setup**: Requires package download step before deployment
-
-### 2. Networked Mode
+### 1. Networked Mode (Default, Recommended for Demo)
 - **Use when**: Droplets can access internet, faster deployment
 - **How it works**: Packages installed directly from Elastic repositories
-- **Components**: 5 Elasticsearch nodes + Kibana only
+- **Components**: Elasticsearch nodes (configurable) + Kibana
 - **Setup**: No package download required
 
-**Switch modes** by setting `deployment_mode = "networked"` in `terraform.tfvars`
+### 2. Air-Gapped Mode
+- **Use when**: Droplets have no internet access, maximum security isolation
+- **How it works**: All packages pre-downloaded and uploaded via Terraform
+- **Components**: Elasticsearch nodes (configurable) + Kibana + EPR + Artifact Registry
+- **Setup**: Requires package download step before deployment
+
+**Switch modes** by setting `deployment_mode = "airgapped"` in `terraform.tfvars`
 
 ## Architecture
 
-### Infrastructure
-- **3 Hot Nodes**: 8GB RAM droplets (master-eligible, data_hot, ingest roles) - Also act as coordinators
-- **1 Cold Node**: 2GB RAM droplet (data_cold role only)
-- **1 Frozen Node**: 2GB RAM droplet (data_frozen role only)
-- **DigitalOcean Spaces**: S3-compatible storage for searchable snapshots
+### Infrastructure (Flexible Configuration)
+- **Hot Nodes**: 1-10 nodes (configurable, default: 1) - master-eligible, data_hot, ingest roles, also act as coordinators
+- **Cold Tier**: Optional 1 node with 2GB RAM (data_cold role only, disabled by default)
+- **Frozen Tier**: Optional 1 node with 2GB RAM (data_frozen role only, disabled by default)
+- **Kibana**: Always included for cluster management and visualization
+- **DigitalOcean Spaces**: S3-compatible storage for searchable snapshots (auto-created when cold/frozen tiers enabled)
 - **No Load Balancer**: Elasticsearch handles load balancing internally via coordinator nodes
 - **VPC**: Private network isolation for secure cluster communication
 - **Optional Data Sources**: Cribl Stream VMs for data routing and processing (disabled by default)
@@ -135,12 +136,27 @@ cp terraform.tfvars.example terraform.tfvars
 ```
 
 Edit `terraform.tfvars` with your values:
-- `deployment_mode`: Set to "airgapped" or "networked" (default: "airgapped")
+- `deployment_mode`: Set to "airgapped" or "networked" (default: "normal")
 - `ssh_key_name`: Name of your SSH key in DigitalOcean (REQUIRED)
 - `ssh_private_key_path`: Path to your SSH private key file (air-gapped only, default: `~/.ssh/id_rsa`)
 - `allowed_ips`: IPs allowed to access Elasticsearch API (RESTRICT IN PRODUCTION)
 - `allowed_ssh_ips`: IPs allowed SSH access (leave empty to use allowed_ips)
 - `region`: Choose your preferred DigitalOcean region
+
+**Object Storage (DigitalOcean Spaces) - Auto-Created When Needed:**
+
+Spaces (S3-compatible object storage) is **automatically created** when you enable cold or frozen tiers:
+- **Required for**: Frozen tier (uses searchable snapshots stored in Spaces)
+- **Useful for**: Cold tier (for backups and snapshot repository)
+- **Not needed for**: Hot nodes only deployments
+
+To enable Spaces, add these to `terraform.tfvars`:
+```hcl
+spaces_access_id     = "your-spaces-access-key"
+spaces_secret_key    = "your-spaces-secret-key"
+```
+
+**Important**: If you enable `enable_frozen_tier=true`, you MUST provide Spaces credentials. The deployment will fail without them.
 
 **Important for Air-Gapped Mode**: The `ssh_private_key_path` is used by Terraform to upload packages to droplets.
 
@@ -157,10 +173,30 @@ terraform plan
 terraform apply
 ```
 
+**Flexible Deployment Examples:**
+
+You can customize your deployment using command-line variables. Here are common configurations:
+
+```bash
+# Minimal demo: 1 hot node, networked mode (cheapest)
+terraform apply -var="deployment_mode=normal" -var="hot_node_count=1"
+
+# Single node with Cribl data source
+terraform apply -var="hot_node_count=1" -var="data_source_type=cribl" -var="data_source_count=1"
+
+# Production-like: 3 hot nodes + cold/frozen tiers (requires Spaces credentials in terraform.tfvars)
+terraform apply -var="hot_node_count=3" -var="enable_cold_tier=true" -var="enable_frozen_tier=true"
+
+# Custom: 2 hot nodes, no tiers, networked mode
+terraform apply -var="deployment_mode=normal" -var="hot_node_count=2" -var="enable_cold_tier=false" -var="enable_frozen_tier=false"
+```
+
+The default configuration (if no variables specified) deploys 1 hot node + Kibana in networked mode with no cold/frozen tiers.
+
 **What happens during deployment:**
 
 **Air-Gapped Mode:**
-1. **Droplet Creation**: Creates 5 ES nodes + Kibana + EPR + Artifact Registry with VPC networking
+1. **Droplet Creation**: Creates ES nodes + Kibana + EPR + Artifact Registry with VPC networking
 2. **Package Upload**: Terraform automatically uploads all packages via SSH
 3. **Local Installation**: Each droplet installs from local packages without internet access
 4. **Security Configuration**: Sets up TLS, RBAC, certificates, and audit logging
@@ -168,7 +204,7 @@ terraform apply
    - Deployment time: ~15-20 minutes (including package upload)
 
 **Networked Mode:**
-1. **Droplet Creation**: Creates 5 ES nodes + Kibana with VPC networking
+1. **Droplet Creation**: Creates ES nodes + Kibana with VPC networking (tiers/count based on your variables)
 2. **Internet Installation**: Droplets download packages from Elastic repositories
 3. **Security Configuration**: Sets up TLS, RBAC, certificates, and audit logging
 4. **Cluster Formation**: Nodes discover each other and form a secure cluster

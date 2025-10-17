@@ -60,6 +60,14 @@ useradd -m -s /bin/bash cribladmin || true
 usermod -aG sudo cribladmin
 echo "cribladmin ALL=(ALL) NOPASSWD: /bin/systemctl * cribl" >> /etc/sudoers.d/cribladmin
 
+# Copy SSH keys from root to cribladmin
+log "Copying SSH keys to cribladmin user..."
+mkdir -p /home/cribladmin/.ssh
+cp /root/.ssh/authorized_keys /home/cribladmin/.ssh/authorized_keys
+chown -R cribladmin:cribladmin /home/cribladmin/.ssh
+chmod 700 /home/cribladmin/.ssh
+chmod 600 /home/cribladmin/.ssh/authorized_keys
+
 # Secure SSH
 log "Hardening SSH configuration..."
 sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
@@ -192,7 +200,7 @@ systemctl start cribl
 # Wait for Cribl to start
 log "Waiting for Cribl to start..."
 for i in {1..30}; do
-  if curl -s -o /dev/null -w "%{http_code}" http://localhost:9000/login | grep -q "200"; then
+  if curl -s -o /dev/null -w "%%{http_code}" http://localhost:9000/login | grep -q "200"; then
     log "Cribl Stream is responding"
     break
   fi

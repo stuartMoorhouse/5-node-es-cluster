@@ -12,6 +12,12 @@ locals {
 
   # Dollar sign for bash command substitutions in templates
   dollar = "$"
+
+  # Calculate actual count for data sources based on new or legacy variables
+  actual_cribl_count = var.data_source_type == "cribl" ? var.data_source_count : var.cribl_stream_count
+
+  # Validation: Check if Spaces credentials are required but not provided
+  validate_spaces = (var.enable_frozen_tier && var.spaces_access_id == "") ? tobool("ERROR: Frozen tier requires Spaces credentials. Set spaces_access_id and spaces_secret_key in terraform.tfvars") : true
 }
 
 # Random passwords for Elasticsearch users
@@ -105,8 +111,10 @@ resource "digitalocean_droplet" "hot_nodes" {
   )
 }
 
-# Cold node (1 node with 2GB RAM)
+# Cold node (1 node with 2GB RAM) - Optional
 resource "digitalocean_droplet" "cold_node" {
+  count = var.enable_cold_tier ? 1 : 0
+
   name   = "${local.cluster_name_prefix}-cold-1"
   region = var.region
   size   = var.cold_node_size
@@ -159,8 +167,10 @@ resource "digitalocean_droplet" "cold_node" {
   depends_on = [digitalocean_droplet.hot_nodes]
 }
 
-# Frozen node (1 node with 2GB RAM)
+# Frozen node (1 node with 2GB RAM) - Optional
 resource "digitalocean_droplet" "frozen_node" {
+  count = var.enable_frozen_tier ? 1 : 0
+
   name   = "${local.cluster_name_prefix}-frozen-1"
   region = var.region
   size   = var.frozen_node_size

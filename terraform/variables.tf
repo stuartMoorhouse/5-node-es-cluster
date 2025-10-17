@@ -43,9 +43,14 @@ variable "elasticsearch_version" {
 }
 
 variable "hot_node_count" {
-  description = "Number of hot data nodes (minimum 2 for master quorum)"
+  description = "Number of hot data nodes (minimum 1 for single-node demo, 2+ recommended for production quorum)"
   type        = number
-  default     = 2  # Reduced from 3 for cost optimization
+  default     = 1  # Minimal for demo - use 3 for production
+
+  validation {
+    condition     = var.hot_node_count >= 1 && var.hot_node_count <= 10
+    error_message = "hot_node_count must be between 1 and 10"
+  }
 }
 
 variable "hot_node_size" {
@@ -126,10 +131,22 @@ variable "artifact_registry_node_size" {
   # Can use s-1vcpu-1gb ($6/month) for very light usage
 }
 
-variable "deployment_mode" {
-  description = "Deployment mode: 'airgapped' (packages pre-downloaded and uploaded) or 'normal' (install from internet)"
+# Deployment Configuration
+variable "deployment_type" {
+  description = "Elasticsearch deployment type: 'self-managed' (VMs), 'elastic-cloud-hosted' (future), 'elastic-cloud-serverless' (future)"
   type        = string
-  default     = "airgapped"
+  default     = "self-managed"
+
+  validation {
+    condition     = contains(["self-managed", "elastic-cloud-hosted", "elastic-cloud-serverless"], var.deployment_type)
+    error_message = "deployment_type must be 'self-managed', 'elastic-cloud-hosted', or 'elastic-cloud-serverless'"
+  }
+}
+
+variable "deployment_mode" {
+  description = "Installation mode for self-managed: 'airgapped' (packages pre-downloaded) or 'normal' (install from internet)"
+  type        = string
+  default     = "normal"
 
   validation {
     condition     = contains(["airgapped", "normal"], var.deployment_mode)
@@ -137,9 +154,45 @@ variable "deployment_mode" {
   }
 }
 
+# Cluster Tier Configuration
+variable "enable_cold_tier" {
+  description = "Enable cold data tier (1 node with 2GB RAM for older data)"
+  type        = bool
+  default     = false
+}
+
+variable "enable_frozen_tier" {
+  description = "Enable frozen data tier (1 node with 2GB RAM for archived data with searchable snapshots). Requires Spaces credentials."
+  type        = bool
+  default     = false
+}
+
 # Data Source Configuration
+variable "data_source_type" {
+  description = "Data source VM type to deploy: 'none', 'cribl'"
+  type        = string
+  default     = "none"
+
+  validation {
+    condition     = contains(["none", "cribl"], var.data_source_type)
+    error_message = "data_source_type must be 'none' or 'cribl'"
+  }
+}
+
+variable "data_source_count" {
+  description = "Number of data source VMs to create (1-10, only used if data_source_type is not 'none')"
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.data_source_count >= 1 && var.data_source_count <= 10
+    error_message = "data_source_count must be between 1 and 10"
+  }
+}
+
+# Legacy variable for backward compatibility - will be deprecated
 variable "cribl_stream_count" {
-  description = "Number of Cribl Stream VMs to create (0 to disable)"
+  description = "DEPRECATED: Use data_source_type='cribl' and data_source_count instead. Number of Cribl Stream VMs to create (0 to disable)"
   type        = number
   default     = 0
 
