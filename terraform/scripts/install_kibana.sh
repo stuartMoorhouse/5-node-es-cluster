@@ -121,9 +121,8 @@ elasticsearch.username: "kibana_system"
 elasticsearch.password: "${ELASTIC_PASSWORD}"
 elasticsearch.ssl.verificationMode: none
 
-# Security
-xpack.security.enabled: true
-xpack.security.encryptionKey: "$(openssl rand -base64 32)"
+# Security encryption keys (xpack.security.* options removed - not valid in Kibana 9.x)
+# Security is always enabled in Kibana 9.x
 xpack.encryptedSavedObjects.encryptionKey: "$(openssl rand -base64 32)"
 xpack.reporting.encryptionKey: "$(openssl rand -base64 32)"
 

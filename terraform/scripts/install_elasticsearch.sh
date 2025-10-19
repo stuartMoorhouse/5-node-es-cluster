@@ -122,13 +122,16 @@ if [ "$SINGLE_NODE_MODE" = true ]; then
   # Replace cluster.initial_master_nodes with discovery.type: single-node
   sed -i 's/^cluster\.initial_master_nodes:.*/# Single-node discovery\ndiscovery.type: single-node/' /etc/elasticsearch/elasticsearch.yml
 
+  # Disable enrollment to prevent auto-password generation (we'll set our own)
+  sed -i 's/^xpack\.security\.enrollment\.enabled:.*/xpack.security.enrollment.enabled: false/' /etc/elasticsearch/elasticsearch.yml
+
   # Set cluster name
   sed -i "s/^#cluster\.name:.*/cluster.name: $CLUSTER_NAME/" /etc/elasticsearch/elasticsearch.yml
 
   # Set node name
   sed -i "s/^#node\.name:.*/node.name: $HOSTNAME/" /etc/elasticsearch/elasticsearch.yml
 
-  log "Single-node configuration complete"
+  log "Single-node configuration complete (auto-enrollment disabled)"
 else
   # Multi-node mode: Generate certificates and create full configuration
   log "Creating certificate directories..."
@@ -237,7 +240,7 @@ cluster.initial_master_nodes: [$INITIAL_MASTERS]
 
 # Security settings - Transport layer (relaxed for demo with self-signed certs)
 xpack.security.enabled: true
-xpack.security.enrollment.enabled: true
+xpack.security.enrollment.enabled: false
 xpack.security.transport.ssl.enabled: true
 xpack.security.transport.ssl.verification_mode: none
 xpack.security.transport.ssl.client_authentication: optional
@@ -317,44 +320,33 @@ for i in {1..60}; do
   sleep 5
 done
 
-# Set elastic password on first node using API
+# Set passwords on first node using elasticsearch-reset-password tool
 if [[ "$IS_FIRST_NODE" == "true" ]]; then
-  log "Setting elastic user password via API..."
+  log "Configuring user passwords..."
   sleep 30  # Wait for cluster to stabilize
 
-  if [ -z "$AUTO_ELASTIC_PASSWORD" ]; then
-    log "ERROR: Auto-generated password not available. Cannot reset password."
-    exit 1
-  fi
-
-  # Reset elastic password using API
-  cat > /tmp/reset_elastic.json << JSONEOF
-{"password": "${ELASTIC_PASSWORD}"}
-JSONEOF
-
-  log "Using auto-generated password for initial authentication..."
-  curl -k -u "elastic:${AUTO_ELASTIC_PASSWORD}" -X POST "https://localhost:9200/_security/user/elastic/_password" \
-    -H "Content-Type: application/json" \
-    -d @/tmp/reset_elastic.json
+  # Use elasticsearch-reset-password tool (more reliable than API with auto-generated passwords)
+  log "Setting elastic user password..."
+  echo "y" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -i -b <<< "${ELASTIC_PASSWORD}"
 
   if [ $? -eq 0 ]; then
     log "Elastic password configured successfully"
   else
-    log "ERROR: Failed to reset elastic password"
-    rm -f /tmp/reset_elastic.json
+    log "ERROR: Failed to set elastic password"
     exit 1
   fi
 
   # Set kibana_system password (required for Kibana)
-  cat > /tmp/reset_kibana.json << JSONEOF
-{"password": "${ELASTIC_PASSWORD}"}
-JSONEOF
+  log "Setting kibana_system user password..."
+  echo "y" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u kibana_system -i -b <<< "${ELASTIC_PASSWORD}"
 
-  curl -k -u "elastic:${ELASTIC_PASSWORD}" -X POST "https://localhost:9200/_security/user/kibana_system/_password" \
-    -H "Content-Type: application/json" \
-    -d @/tmp/reset_kibana.json
+  if [ $? -eq 0 ]; then
+    log "Kibana_system password configured successfully"
+  else
+    log "ERROR: Failed to set kibana_system password"
+    exit 1
+  fi
 
-  rm -f /tmp/reset_elastic.json /tmp/reset_kibana.json
   log "Built-in user passwords configured"
 fi
 
