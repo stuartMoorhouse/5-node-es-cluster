@@ -25,7 +25,7 @@ apt-get update
 
 # Install prerequisites
 log "Installing prerequisites..."
-apt-get install -y apt-transport-https wget gnupg unzip
+apt-get install -y apt-transport-https wget gnupg unzip jq
 
 # Add Elasticsearch GPG key
 log "Adding Elasticsearch GPG key..."

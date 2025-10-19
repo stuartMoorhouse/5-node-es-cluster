@@ -53,25 +53,25 @@ locals {
 resource "random_password" "elastic_password" {
   length           = 32
   special          = true
-  override_special = "!#$%&*+-=?@^_~" # Exclude problematic characters like (){}[]<>
+  override_special = "!#%&*+-=?@^_~" # Exclude problematic characters like $(){}[]<>
 }
 
 resource "random_password" "monitor_password" {
   length           = 24
   special          = true
-  override_special = "!#$%&*+-=?@^_~"
+  override_special = "!#%&*+-=?@^_~"
 }
 
 resource "random_password" "ingest_password" {
   length           = 24
   special          = true
-  override_special = "!#$%&*+-=?@^_~"
+  override_special = "!#%&*+-=?@^_~"
 }
 
 resource "random_password" "admin_password" {
   length           = 24
   special          = true
-  override_special = "!#$%&*+-=?@^_~"
+  override_special = "!#%&*+-=?@^_~"
 }
 
 # VPC for cluster isolation
@@ -126,19 +126,7 @@ resource "digitalocean_droplet" "elasticsearch_nodes" {
   provisioner "remote-exec" {
     inline = [
       "chmod +x /tmp/install_elasticsearch.sh",
-      "ES_VERSION='${var.elasticsearch_version}' \\",
-      "ELASTIC_PASSWORD='${random_password.elastic_password.result}' \\",
-      "CLUSTER_NAME='${local.cluster_name_prefix}' \\",
-      "NODE_NUMBER='${each.value.node_number}' \\",
-      "TOTAL_MASTERS='${local.total_masters}' \\",
-      "MASTER_IPS='${local.master_ips}' \\",
-      "IS_FIRST_NODE='${each.key == keys(local.es_nodes_flat)[0] ? "true" : "false"}' \\",
-      "MONITOR_PASSWORD='${random_password.monitor_password.result}' \\",
-      "INGEST_PASSWORD='${random_password.ingest_password.result}' \\",
-      "ADMIN_PASSWORD='${random_password.admin_password.result}' \\",
-      "PRIVATE_IP='${self.ipv4_address_private}' \\",
-      "NODE_ROLES='${join(",", each.value.roles)}' \\",
-      "/tmp/install_elasticsearch.sh"
+      "ES_VERSION='${var.elasticsearch_version}' ELASTIC_PASSWORD='${random_password.elastic_password.result}' CLUSTER_NAME='${local.cluster_name_prefix}' NODE_NUMBER='${each.value.node_number}' TOTAL_MASTERS='${local.total_masters}' MASTER_IPS='${local.master_ips}' IS_FIRST_NODE='${each.key == keys(local.es_nodes_flat)[0] ? "true" : "false"}' MONITOR_PASSWORD='${random_password.monitor_password.result}' INGEST_PASSWORD='${random_password.ingest_password.result}' ADMIN_PASSWORD='${random_password.admin_password.result}' PRIVATE_IP='${self.ipv4_address_private}' NODE_ROLES='${join(",", each.value.roles)}' /tmp/install_elasticsearch.sh"
     ]
   }
 }
