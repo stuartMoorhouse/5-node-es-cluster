@@ -1,6 +1,10 @@
 #!/bin/bash
 set -e
 
+# Prevent interactive prompts during package installation
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+
 # Kibana Installation Script
 # Installs Kibana from internet repositories
 # Configures Fleet for local registries if in airgapped mode
@@ -15,6 +19,10 @@ log() {
 }
 
 log "Starting Kibana installation (mode: ${DEPLOYMENT_MODE})..."
+
+# Wait for cloud-init to finish to avoid apt lock conflicts
+log "Waiting for cloud-init to complete..."
+cloud-init status --wait
 
 # Wait for networking to be ready and get private IP
 log "Waiting for network to be ready..."
