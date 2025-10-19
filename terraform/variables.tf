@@ -116,10 +116,10 @@ variable "enable_monitoring" {
 }
 
 variable "kibana_node_size" {
-  description = "Droplet size for Kibana - Production: s-2vcpu-4gb, Demo: s-1vcpu-2gb"
+  description = "Droplet size for Kibana - Requires at least 4GB RAM"
   type        = string
-  default     = "s-1vcpu-2gb"  # Cost-optimized for demo (~$12/month)
-  # Production: "s-2vcpu-4gb" ($24/month) for better performance
+  default     = "s-2vcpu-4gb"  # Required for Kibana 9.x startup (~$24/month)
+  # Kibana 9.x requires significant resources during initialization
 }
 
 variable "epr_node_size" {
