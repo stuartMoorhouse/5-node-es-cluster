@@ -15,24 +15,37 @@ resource "digitalocean_droplet" "kibana" {
     digitalocean_ssh_key.main.id
   ]
 
-  user_data = templatefile(
-    "${path.module}/scripts/install_kibana.sh",
-    {
-      elasticsearch_version = var.elasticsearch_version
-      elastic_password      = random_password.elastic_password.result
-      cluster_name         = local.cluster_name_prefix
-      master_ips           = local.master_ips
-      deployment_mode      = var.deployment_mode
-      epr_url              = var.deployment_mode == "airgapped" ? "http://10.10.10.3:8443" : ""
-      artifact_registry_url = var.deployment_mode == "airgapped" ? "http://10.10.10.2:9080/downloads/" : ""
-      dollar               = local.dollar
-    }
-  )
-
   tags = concat(
     keys(local.common_tags),
     ["elasticsearch", "kibana"]
   )
+
+  connection {
+    type        = "ssh"
+    user        = "root"
+    host        = self.ipv4_address
+    private_key = file("~/.ssh/id_ed25519")
+    timeout     = "5m"
+  }
+
+  provisioner "file" {
+    source      = "${path.module}/scripts/install_kibana.sh"
+    destination = "/tmp/install_kibana.sh"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "chmod +x /tmp/install_kibana.sh",
+      "ES_VERSION='${var.elasticsearch_version}' \\",
+      "ELASTIC_PASSWORD='${random_password.elastic_password.result}' \\",
+      "CLUSTER_NAME='${local.cluster_name_prefix}' \\",
+      "MASTER_IPS='${local.master_ips}' \\",
+      "DEPLOYMENT_MODE='${var.deployment_mode}' \\",
+      "EPR_URL='${var.deployment_mode == "airgapped" ? "http://10.10.10.3:8443" : ""}' \\",
+      "ARTIFACT_REGISTRY_URL='${var.deployment_mode == "airgapped" ? "http://10.10.10.2:9080/downloads/" : ""}' \\",
+      "/tmp/install_kibana.sh"
+    ]
+  }
 
   depends_on = [digitalocean_droplet.elasticsearch_nodes]
 }

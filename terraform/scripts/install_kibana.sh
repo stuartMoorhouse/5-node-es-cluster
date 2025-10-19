@@ -5,41 +5,36 @@ set -e
 # Installs Kibana from internet repositories
 # Configures Fleet for local registries if in airgapped mode
 
-# Variables passed from Terraform
-ES_VERSION="${elasticsearch_version}"
-ELASTIC_PASSWORD="${elastic_password}"
-CLUSTER_NAME="${cluster_name}"
-MASTER_IPS="${master_ips}"
-DEPLOYMENT_MODE="${deployment_mode}"
-EPR_URL="${epr_url}"
-ARTIFACT_REGISTRY_URL="${artifact_registry_url}"
+# Environment variables expected from Terraform provisioner:
+# ES_VERSION, ELASTIC_PASSWORD, CLUSTER_NAME, MASTER_IPS,
+# DEPLOYMENT_MODE, EPR_URL, ARTIFACT_REGISTRY_URL
 
 # Logging
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
 }
 
-log "Starting Kibana installation (mode: $${DEPLOYMENT_MODE})..."
+log "Starting Kibana installation (mode: ${DEPLOYMENT_MODE})..."
 
 # Wait for networking to be ready and get private IP
 log "Waiting for network to be ready..."
 for i in {1..30}; do
   # Try multiple methods to get private IP
-  PRIVATE_IP=${dollar}(hostname -I 2>/dev/null | awk '{print $$1}')
+  PRIVATE_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 
   # Fallback to ip command if hostname -I fails
-  if [ -z "$${PRIVATE_IP}" ]; then
-    PRIVATE_IP=${dollar}(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n 1)
+  if [ -z "${PRIVATE_IP}" ]; then
+    PRIVATE_IP=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n 1)
   fi
 
   # Fallback to DigitalOcean metadata service
-  if [ -z "$${PRIVATE_IP}" ]; then
-    PRIVATE_IP=${dollar}(curl -s http://169.254.169.254/metadata/v1/interfaces/private/0/ipv4/address 2>/dev/null)
+  if [ -z "${PRIVATE_IP}" ]; then
+    PRIVATE_IP=$(curl -s http://169.254.169.254/metadata/v1/interfaces/private/0/ipv4/address 2>/dev/null)
   fi
 
   # Check if we got a valid IP
-  if [ -n "$${PRIVATE_IP}" ] && [[ "$${PRIVATE_IP}" =~ ^10\. ]]; then
-    log "Private IP: $${PRIVATE_IP}"
+  if [ -n "${PRIVATE_IP}" ] && [[ "${PRIVATE_IP}" =~ ^10\. ]]; then
+    log "Private IP: ${PRIVATE_IP}"
     break
   fi
 
@@ -48,12 +43,12 @@ for i in {1..30}; do
 done
 
 # Final fallback - use 0.0.0.0 to listen on all interfaces
-if [ -z "$${PRIVATE_IP}" ] || [[ ! "$${PRIVATE_IP}" =~ ^10\. ]]; then
+if [ -z "${PRIVATE_IP}" ] || [[ ! "${PRIVATE_IP}" =~ ^10\. ]]; then
   log "WARNING: Could not determine private IP, using 0.0.0.0"
   PRIVATE_IP="0.0.0.0"
 fi
 
-log "Using IP address: $${PRIVATE_IP}"
+log "Using IP address: ${PRIVATE_IP}"
 
 # Update package lists
 log "Updating package lists..."
@@ -76,8 +71,8 @@ log "Updating package lists with Elasticsearch repository..."
 apt-get update
 
 # Install Kibana
-log "Installing Kibana version $${ES_VERSION}..."
-apt-get install -y kibana=$${ES_VERSION}
+log "Installing Kibana version ${ES_VERSION}..."
+apt-get install -y kibana=${ES_VERSION}
 
 # Create non-root admin user
 log "Creating esadmin user..."
@@ -101,21 +96,21 @@ chmod 600 /home/esadmin/.ssh/authorized_keys
 # systemctl restart sshd
 
 # Get first Elasticsearch node IP
-FIRST_ES_IP=$(echo $${MASTER_IPS} | cut -d',' -f1)
-log "Elasticsearch endpoint: https://$${FIRST_ES_IP}:9200"
+FIRST_ES_IP=$(echo ${MASTER_IPS} | cut -d',' -f1)
+log "Elasticsearch endpoint: https://${FIRST_ES_IP}:9200"
 
 # Configure Kibana for networked mode
 log "Configuring Kibana..."
 cat > /etc/kibana/kibana.yml << EOF
 # Server configuration
-server.host: "$${PRIVATE_IP}"
+server.host: "${PRIVATE_IP}"
 server.port: 5601
-server.name: "kibana-$${CLUSTER_NAME}"
+server.name: "kibana-${CLUSTER_NAME}"
 
 # Elasticsearch connection
-elasticsearch.hosts: ["https://$${FIRST_ES_IP}:9200"]
+elasticsearch.hosts: ["https://${FIRST_ES_IP}:9200"]
 elasticsearch.username: "kibana_system"
-elasticsearch.password: "$${ELASTIC_PASSWORD}"
+elasticsearch.password: "${ELASTIC_PASSWORD}"
 elasticsearch.ssl.verificationMode: none
 
 # Fleet configuration (uses public Elastic Package Registry)
@@ -124,7 +119,7 @@ xpack.fleet.outputs:
   - id: fleet-default-output
     name: default
     type: elasticsearch
-    hosts: ["https://$${FIRST_ES_IP}:9200"]
+    hosts: ["https://${FIRST_ES_IP}:9200"]
     is_default: true
     is_default_monitoring: true
     ssl:
@@ -172,13 +167,13 @@ for i in {1..60}; do
 done
 
 # Configure Fleet based on deployment mode
-if [[ "$${DEPLOYMENT_MODE}" == "airgapped" ]] && [[ -n "$${EPR_URL}" ]]; then
+if [[ "${DEPLOYMENT_MODE}" == "airgapped" ]] && [[ -n "${EPR_URL}" ]]; then
   log "Configuring Fleet for local package registry mode..."
 
   # Wait for Kibana API to be fully ready
   log "Waiting for Kibana API to be ready..."
   for i in {1..30}; do
-    if curl -s -u "elastic:$${ELASTIC_PASSWORD}" \
+    if curl -s -u "elastic:${ELASTIC_PASSWORD}" \
          -H "kbn-xsrf: true" \
          http://localhost:5601/api/status | grep -q "available"; then
       log "Kibana API is ready"
@@ -192,7 +187,7 @@ if [[ "$${DEPLOYMENT_MODE}" == "airgapped" ]] && [[ -n "$${EPR_URL}" ]]; then
   curl -X POST "http://localhost:5601/api/fleet/setup" \
     -H "kbn-xsrf: true" \
     -H "Content-Type: application/json" \
-    -u "elastic:$${ELASTIC_PASSWORD}"
+    -u "elastic:${ELASTIC_PASSWORD}"
 
   sleep 5
 
@@ -201,17 +196,17 @@ if [[ "$${DEPLOYMENT_MODE}" == "airgapped" ]] && [[ -n "$${EPR_URL}" ]]; then
   curl -X PUT "http://localhost:5601/api/fleet/settings" \
     -H "kbn-xsrf: true" \
     -H "Content-Type: application/json" \
-    -u "elastic:$${ELASTIC_PASSWORD}" \
+    -u "elastic:${ELASTIC_PASSWORD}" \
     -d "{
-      \"package_registry_url\": \"$${EPR_URL}\",
+      \"package_registry_url\": \"${EPR_URL}\",
       \"agent_binary_download\": {
-        \"source_uri\": \"$${ARTIFACT_REGISTRY_URL}\"
+        \"source_uri\": \"${ARTIFACT_REGISTRY_URL}\"
       }
     }"
 
   log "Fleet configured for local registries!"
-  log "  EPR: $${EPR_URL}"
-  log "  Artifact Registry: $${ARTIFACT_REGISTRY_URL}"
+  log "  EPR: ${EPR_URL}"
+  log "  Artifact Registry: ${ARTIFACT_REGISTRY_URL}"
 else
   log "Fleet will use public Elastic registries (networked mode)"
 fi
@@ -250,10 +245,10 @@ chown esadmin:esadmin /home/esadmin/configure_fleet.sh
 log "========================================="
 log "Kibana installation complete!"
 log "========================================="
-log "Kibana URL: http://$${PRIVATE_IP}:5601"
+log "Kibana URL: http://${PRIVATE_IP}:5601"
 log "Username: elastic"
-log "Deployment Mode: $${DEPLOYMENT_MODE}"
-if [[ "$${DEPLOYMENT_MODE}" == "airgapped" ]]; then
+log "Deployment Mode: ${DEPLOYMENT_MODE}"
+if [[ "${DEPLOYMENT_MODE}" == "airgapped" ]]; then
   log "Fleet configured for LOCAL registries"
 else
   log "Fleet uses PUBLIC Elastic registries"
