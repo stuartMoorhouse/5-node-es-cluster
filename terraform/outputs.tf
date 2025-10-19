@@ -14,26 +14,8 @@ output "primary_elasticsearch_url" {
 }
 
 output "elasticsearch_password" {
-  description = "Elasticsearch elastic user password (superuser)"
+  description = "Elasticsearch elastic user password (superuser) - used for all access in this demo"
   value       = random_password.elastic_password.result
-  sensitive   = true
-}
-
-output "monitor_password" {
-  description = "Monitoring user password (read-only access)"
-  value       = random_password.monitor_password.result
-  sensitive   = true
-}
-
-output "ingest_password" {
-  description = "Ingest user password (write access to logs/metrics)"
-  value       = random_password.ingest_password.result
-  sensitive   = true
-}
-
-output "admin_password" {
-  description = "Admin user password (cluster admin, not superuser)"
-  value       = random_password.admin_password.result
   sensitive   = true
 }
 
@@ -98,40 +80,31 @@ output "ssh_commands" {
 output "security_notes" {
   description = "Important security configuration notes"
   value = <<-EOT
-    === SECURITY CONFIGURATION COMPLETE ===
+    === DEMO CLUSTER CONFIGURATION ===
 
     Cluster Access:
     - NO LOAD BALANCER: Connect directly to any node
     - Elasticsearch handles load balancing internally
     - Master-eligible nodes act as coordinators and route requests
-    - Configure clients with multiple node URLs for HA
 
-    Users Created:
-    - elastic: Superuser (use sparingly)
-    - admin: Cluster administrator
-    - monitor: Read-only monitoring
-    - ingest: Data ingestion only
+    Authentication:
+    - Username: elastic (superuser - use for all access in this demo)
+    - Password: Run 'terraform output -raw elasticsearch_password'
 
     Security Features Enabled:
     - TLS/SSL on all connections
     - X-Pack security with authentication
-    - Audit logging enabled
-    - RBAC with least privilege principle
     - SSH root access disabled
-    - Restrictive firewall rules
     - Certificate-based node authentication
 
-    Client Configuration:
-    Configure your Elasticsearch clients with all node URLs:
+    Elasticsearch URLs:
     ${join("\n    ", [for k, node in digitalocean_droplet.elasticsearch_nodes : "- https://${node.ipv4_address}:9200"])}
 
     Next Steps:
-    1. Retrieve passwords with: terraform output -raw <user>_password
+    1. Access Kibana (see kibana_url output)
     2. SSH to nodes using: ssh esadmin@<node-ip>
-    3. Configure snapshot repository using the script on any node
-    4. API keys are stored in /home/esadmin/api_keys.txt on first node
-    5. Validate security with: /home/esadmin/validate_security.sh
 
+    Note: This is a simplified demo setup with one superuser account.
     WARNING: Root SSH access is disabled. Use 'esadmin' user.
   EOT
 }
@@ -228,8 +201,8 @@ output "cribl_stream_notes" {
     "   - S3: 10200 (internal)\n\n",
     "5. Elasticsearch Connection:\n",
     "   - Destination URL: ${values(digitalocean_droplet.elasticsearch_nodes)[0].ipv4_address_private}:9200\n",
-    "   - Username: ingest\n",
-    "   - Password: <use ingest_password output>\n\n",
+    "   - Username: elastic\n",
+    "   - Password: <use elasticsearch_password output>\n\n",
     "Note: Configure routes and pipelines via Cribl UI\n",
     "SSH access restricted to cribladmin user\n\n",
     "======================================"
