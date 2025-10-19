@@ -11,7 +11,7 @@ Create a Terraform configuration to host a small Elasticsearch cluster on Digita
 1 cold node (2 GB RAM)
 1 frozen node (2 GB RAM)
 
-The lastest version of Elastic, 9.2, should be used.
+The lastest version of Elastic, 9.1.5, should be used.
 ## Why
 
 ```
@@ -356,10 +356,15 @@ Set custom artifact registry URL: http://your-artifact-server:9080
 
 
 ```
-## Documentation and references (Optional)
+## Documentation and references
 
 ```
 https://www.elastic.co/docs/
+
+https://www.elastic.co/docs/deploy-manage/deploy/self-managed/installing-elasticsearch#installation-methods
+https://www.elastic.co/docs/deploy-manage/deploy/self-managed/install-kibana
+
+
 
 https://registry.terraform.io/providers/elastic/elasticstack/latest
 

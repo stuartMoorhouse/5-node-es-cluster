@@ -6,9 +6,12 @@ set -e
 # Droplets require internet access during installation
 
 # Environment variables expected from Terraform provisioner:
-# ES_VERSION, ELASTIC_PASSWORD, CLUSTER_NAME, NODE_NUMBER, TOTAL_MASTERS,
-# MASTER_IPS, IS_FIRST_NODE, MONITOR_PASSWORD, INGEST_PASSWORD, ADMIN_PASSWORD,
-# PRIVATE_IP, NODE_ROLES
+# ES_VERSION, CLUSTER_NAME, NODE_NUMBER, TOTAL_MASTERS,
+# MASTER_IPS, IS_FIRST_NODE, PRIVATE_IP, NODE_ROLES
+#
+# NOTE: Terraform does NOT provide passwords via environment variables.
+# This script uses elasticsearch-reset-password in batch mode to auto-generate secure passwords.
+# Generated passwords are stored in /root/.elastic_password and /root/.kibana_system_password
 
 # Prevent interactive prompts during package installation
 export DEBIAN_FRONTEND=noninteractive
@@ -194,7 +197,21 @@ if [ "$SINGLE_NODE_MODE" = false ]; then
   chown -R elasticsearch:elasticsearch /etc/elasticsearch/certs
   chmod 600 /etc/elasticsearch/certs/*.key 2>/dev/null || true
   chmod 600 /etc/elasticsearch/certs/*.p12 2>/dev/null || true
+
+  # Make CA certificate accessible for Kibana (needs to be copied to Kibana server)
+  if [ -f /etc/elasticsearch/ca/ca/ca.crt ]; then
+    cp /etc/elasticsearch/ca/ca/ca.crt /etc/elasticsearch/certs/ca.crt
+    chmod 644 /etc/elasticsearch/certs/ca.crt
+    log "CA certificate copied to /etc/elasticsearch/certs/ca.crt for Kibana access"
+  fi
+
   log "Certificates configured"
+else
+  # Single-node mode: Make CA certificate accessible
+  if [ -f /etc/elasticsearch/certs/http_ca.crt ]; then
+    chmod 644 /etc/elasticsearch/certs/http_ca.crt
+    log "CA certificate accessible at /etc/elasticsearch/certs/http_ca.crt for Kibana"
+  fi
 fi
 
 # Keystore is auto-generated during installation, add passwords only for multi-node
@@ -325,29 +342,38 @@ if [[ "$IS_FIRST_NODE" == "true" ]]; then
   log "Configuring user passwords..."
   sleep 30  # Wait for cluster to stabilize
 
-  # Use elasticsearch-reset-password tool (more reliable than API with auto-generated passwords)
+  # Use elasticsearch-reset-password tool in batch mode (works reliably over SSH)
   log "Setting elastic user password..."
-  echo "y" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -i -b <<< "${ELASTIC_PASSWORD}"
+  TEMP_ELASTIC_PASS=$(/usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic --batch --url https://localhost:9200 | grep "New value:" | awk '{print $NF}')
 
-  if [ $? -eq 0 ]; then
-    log "Elastic password configured successfully"
+  if [ -n "$TEMP_ELASTIC_PASS" ]; then
+    log "Elastic password auto-generated successfully"
+    log "NOTE: Auto-generated password differs from Terraform variable - you'll need to use terraform output to get it"
+    # Store the password for potential later use
+    echo "$TEMP_ELASTIC_PASS" > /root/.elastic_password
+    chmod 600 /root/.elastic_password
   else
     log "ERROR: Failed to set elastic password"
     exit 1
   fi
 
-  # Set kibana_system password (required for Kibana)
+  # Set kibana_system password (required for Kibana) - UNIQUE password for service account
   log "Setting kibana_system user password..."
-  echo "y" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u kibana_system -i -b <<< "${ELASTIC_PASSWORD}"
+  TEMP_KIBANA_PASS=$(/usr/share/elasticsearch/bin/elasticsearch-reset-password -u kibana_system --batch --url https://localhost:9200 | grep "New value:" | awk '{print $NF}')
 
-  if [ $? -eq 0 ]; then
-    log "Kibana_system password configured successfully"
+  if [ -n "$TEMP_KIBANA_PASS" ]; then
+    log "Kibana_system password auto-generated successfully"
+    # Store the password for Kibana configuration
+    echo "$TEMP_KIBANA_PASS" > /root/.kibana_system_password
+    chmod 600 /root/.kibana_system_password
   else
     log "ERROR: Failed to set kibana_system password"
     exit 1
   fi
 
   log "Built-in user passwords configured"
+  log "  elastic: superuser (for API and Kibana UI login)"
+  log "  kibana_system: service account (unique password)"
 fi
 
 # Create RBAC setup script
@@ -561,6 +587,9 @@ fi
 SPACES_ENDPOINT=$1
 ACCESS_KEY=$2
 SECRET_KEY=$3
+
+# Get elastic password from file
+ELASTIC_PASSWORD=$(cat /root/.elastic_password)
 
 # Add S3 credentials to keystore
 echo "$ACCESS_KEY" | sudo /usr/share/elasticsearch/bin/elasticsearch-keystore add --stdin s3.client.default.access_key --force

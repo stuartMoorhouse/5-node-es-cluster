@@ -10,8 +10,12 @@ export NEEDRESTART_MODE=a
 # Configures Fleet for local registries if in airgapped mode
 
 # Environment variables expected from Terraform provisioner:
-# ES_VERSION, ELASTIC_PASSWORD, CLUSTER_NAME, MASTER_IPS,
+# ES_VERSION, CLUSTER_NAME, MASTER_IPS,
 # DEPLOYMENT_MODE, EPR_URL, ARTIFACT_REGISTRY_URL
+#
+# NOTE: Terraform does NOT provide passwords via environment variables.
+# The kibana_system password is retrieved from /root/.kibana_system_password file
+# which is copied from the Elasticsearch master node by Terraform
 
 # Logging
 log() {
@@ -107,7 +111,46 @@ chmod 600 /home/esadmin/.ssh/authorized_keys
 FIRST_ES_IP=$(echo ${MASTER_IPS} | cut -d',' -f1)
 log "Elasticsearch endpoint: https://${FIRST_ES_IP}:9200"
 
-# Configure Kibana for networked mode
+# Verify CA certificate was copied by Terraform
+CA_CERT_PATH="/etc/kibana/certs/ca.crt"
+if [ ! -f "$CA_CERT_PATH" ]; then
+  log "ERROR: CA certificate not found at $CA_CERT_PATH"
+  log "ERROR: Terraform should copy this from Elasticsearch master node"
+  exit 1
+fi
+log "CA certificate found at $CA_CERT_PATH"
+
+# KEYSTORE DISABLED - CAUSES HANG OVER SSH
+# TODO: Re-enable keystore once we figure out why it hangs
+# log "Creating Kibana keystore..."
+# /usr/share/kibana/bin/kibana-keystore create --silent
+
+# Get kibana_system password - either from file (if ES auto-generated it) or from env var
+if [ -f /root/.kibana_system_password ]; then
+  log "Using kibana_system password from ES master node file..."
+  KIBANA_PASS=$(cat /root/.kibana_system_password)
+elif [ -n "${KIBANA_SYSTEM_PASSWORD}" ]; then
+  log "Using kibana_system password from environment variable..."
+  KIBANA_PASS="${KIBANA_SYSTEM_PASSWORD}"
+else
+  log "ERROR: No kibana_system password available!"
+  exit 1
+fi
+
+# KEYSTORE DISABLED - Using plain text password temporarily
+# log "Adding kibana_system password to keystore..."
+# echo "${KIBANA_PASS}" | /usr/share/kibana/bin/kibana-keystore add --stdin --silent elasticsearch.password
+
+# KEYSTORE DISABLED - Using plain text encryption keys temporarily
+# log "Generating encryption keys in keystore..."
+# openssl rand -base64 32 | /usr/share/kibana/bin/kibana-keystore add --stdin --silent xpack.encryptedSavedObjects.encryptionKey
+# openssl rand -base64 32 | /usr/share/kibana/bin/kibana-keystore add --stdin --silent xpack.reporting.encryptionKey
+
+# Generate encryption keys as variables
+ENCRYPTION_KEY=$(openssl rand -base64 32)
+REPORTING_KEY=$(openssl rand -base64 32)
+
+# Configure Kibana - TEMPORARY: passwords in plain text until keystore issue is resolved
 log "Configuring Kibana..."
 cat > /etc/kibana/kibana.yml << EOF
 # Server configuration
@@ -118,13 +161,15 @@ server.name: "kibana-${CLUSTER_NAME}"
 # Elasticsearch connection
 elasticsearch.hosts: ["https://${FIRST_ES_IP}:9200"]
 elasticsearch.username: "kibana_system"
-elasticsearch.password: "${ELASTIC_PASSWORD}"
-elasticsearch.ssl.verificationMode: none
+elasticsearch.password: "${KIBANA_PASS}"
 
-# Security encryption keys (xpack.security.* options removed - not valid in Kibana 9.x)
-# Security is always enabled in Kibana 9.x
-xpack.encryptedSavedObjects.encryptionKey: "$(openssl rand -base64 32)"
-xpack.reporting.encryptionKey: "$(openssl rand -base64 32)"
+# SSL with proper certificate verification
+elasticsearch.ssl.verificationMode: certificate
+elasticsearch.ssl.certificateAuthorities: ["${CA_CERT_PATH}"]
+
+# Encryption keys (TEMPORARY - should be in keystore)
+xpack.encryptedSavedObjects.encryptionKey: "${ENCRYPTION_KEY}"
+xpack.reporting.encryptionKey: "${REPORTING_KEY}"
 
 # Performance
 server.maxPayloadBytes: 1048576
@@ -162,43 +207,53 @@ done
 if [[ "${DEPLOYMENT_MODE}" == "airgapped" ]] && [[ -n "${EPR_URL}" ]]; then
   log "Configuring Fleet for local package registry mode..."
 
-  # Wait for Kibana API to be fully ready
-  log "Waiting for Kibana API to be ready..."
-  for i in {1..30}; do
-    if curl -s -u "elastic:${ELASTIC_PASSWORD}" \
-         -H "kbn-xsrf: true" \
-         http://localhost:5601/api/status | grep -q "available"; then
-      log "Kibana API is ready"
-      break
-    fi
-    sleep 10
-  done
+  # Get elastic user password for Fleet configuration
+  if [ -f /root/.elastic_password ]; then
+    ELASTIC_PASSWORD=$(cat /root/.elastic_password)
+  else
+    log "WARNING: /root/.elastic_password not found, skipping Fleet configuration"
+    log "Run /home/esadmin/configure_fleet.sh manually after copying password file"
+  fi
 
-  # Initialize Fleet
-  log "Initializing Fleet..."
-  curl -X POST "http://localhost:5601/api/fleet/setup" \
-    -H "kbn-xsrf: true" \
-    -H "Content-Type: application/json" \
-    -u "elastic:${ELASTIC_PASSWORD}"
+  if [ -n "${ELASTIC_PASSWORD}" ]; then
+    # Wait for Kibana API to be fully ready
+    log "Waiting for Kibana API to be ready..."
+    for i in {1..30}; do
+      if curl -s -u "elastic:${ELASTIC_PASSWORD}" \
+           -H "kbn-xsrf: true" \
+           http://localhost:5601/api/status | grep -q "available"; then
+        log "Kibana API is ready"
+        break
+      fi
+      sleep 10
+    done
 
-  sleep 5
+    # Initialize Fleet
+    log "Initializing Fleet..."
+    curl -X POST "http://localhost:5601/api/fleet/setup" \
+      -H "kbn-xsrf: true" \
+      -H "Content-Type: application/json" \
+      -u "elastic:${ELASTIC_PASSWORD}"
 
-  # Configure Fleet to use local registries
-  log "Configuring Fleet to use local EPR and Artifact Registry..."
-  curl -X PUT "http://localhost:5601/api/fleet/settings" \
-    -H "kbn-xsrf: true" \
-    -H "Content-Type: application/json" \
-    -u "elastic:${ELASTIC_PASSWORD}" \
-    -d "{
-      \"package_registry_url\": \"${EPR_URL}\",
-      \"agent_binary_download\": {
-        \"source_uri\": \"${ARTIFACT_REGISTRY_URL}\"
-      }
-    }"
+    sleep 5
 
-  log "Fleet configured for local registries!"
-  log "  EPR: ${EPR_URL}"
-  log "  Artifact Registry: ${ARTIFACT_REGISTRY_URL}"
+    # Configure Fleet to use local registries
+    log "Configuring Fleet to use local EPR and Artifact Registry..."
+    curl -X PUT "http://localhost:5601/api/fleet/settings" \
+      -H "kbn-xsrf: true" \
+      -H "Content-Type: application/json" \
+      -u "elastic:${ELASTIC_PASSWORD}" \
+      -d "{
+        \"package_registry_url\": \"${EPR_URL}\",
+        \"agent_binary_download\": {
+          \"source_uri\": \"${ARTIFACT_REGISTRY_URL}\"
+        }
+      }"
+
+    log "Fleet configured for local registries!"
+    log "  EPR: ${EPR_URL}"
+    log "  Artifact Registry: ${ARTIFACT_REGISTRY_URL}"
+  fi
 else
   log "Fleet will use public Elastic registries (networked mode)"
 fi
@@ -239,7 +294,17 @@ log "Kibana installation complete!"
 log "========================================="
 log "Kibana listening on: 0.0.0.0:5601 (all interfaces)"
 log "Access via public IP or private IP: ${PRIVATE_IP}:5601"
-log "Username: elastic"
+log ""
+log "Login credentials:"
+log "  Username: elastic"
+log "  Password: (from Terraform variable)"
+log ""
+log "Security configuration:"
+log "  ⚠ TEMPORARY: Passwords in kibana.yml (keystore disabled due to SSH hang issue)"
+log "  ⚠ TEMPORARY: Encryption keys in kibana.yml (keystore disabled)"
+log "  ✓ SSL certificate verification ENABLED"
+log "  ✓ kibana_system service account has unique password"
+log ""
 log "Deployment Mode: ${DEPLOYMENT_MODE}"
 if [[ "${DEPLOYMENT_MODE}" == "airgapped" ]]; then
   log "Fleet configured for LOCAL registries"

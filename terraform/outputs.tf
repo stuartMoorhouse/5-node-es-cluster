@@ -13,10 +13,9 @@ output "primary_elasticsearch_url" {
   value       = length(digitalocean_droplet.elasticsearch_nodes) > 0 ? "https://${values(digitalocean_droplet.elasticsearch_nodes)[0].ipv4_address}:9200" : "No nodes configured"
 }
 
-output "elasticsearch_password" {
-  description = "Elasticsearch elastic user password (superuser) - used for all access in this demo"
-  value       = random_password.elastic_password.result
-  sensitive   = true
+output "elasticsearch_password_command" {
+  description = "Command to retrieve the Elasticsearch elastic user password from the first ES node"
+  value       = length(digitalocean_droplet.elasticsearch_nodes) > 0 ? "ssh root@${values(digitalocean_droplet.elasticsearch_nodes)[0].ipv4_address} cat /root/.elastic_password" : "No nodes configured"
 }
 
 output "elasticsearch_node_ips" {
@@ -89,7 +88,8 @@ output "security_notes" {
 
     Authentication:
     - Username: elastic (superuser - use for all access in this demo)
-    - Password: Run 'terraform output -raw elasticsearch_password'
+    - Password: Run 'terraform output -raw elasticsearch_password_command' to get retrieval command
+    - Or directly: ssh root@<first-es-node-ip> cat /root/.elastic_password
 
     Security Features Enabled:
     - TLS/SSL on all connections
@@ -150,7 +150,7 @@ Deployment Mode: ${var.deployment_mode == "airgapped" ? "Air-Gapped" : "Networke
 1. Kibana Access:
    URL: http://${digitalocean_droplet.kibana.ipv4_address}:5601
    Username: elastic
-   Password: <use elasticsearch_password output>
+   Password: ssh root@${values(digitalocean_droplet.elasticsearch_nodes)[0].ipv4_address} cat /root/.elastic_password
 
 2. Configure Fleet (after Kibana starts):
    ssh esadmin@${digitalocean_droplet.kibana.ipv4_address}
@@ -202,7 +202,7 @@ output "cribl_stream_notes" {
     "5. Elasticsearch Connection:\n",
     "   - Destination URL: ${values(digitalocean_droplet.elasticsearch_nodes)[0].ipv4_address_private}:9200\n",
     "   - Username: elastic\n",
-    "   - Password: <use elasticsearch_password output>\n\n",
+    "   - Password: ssh root@${values(digitalocean_droplet.elasticsearch_nodes)[0].ipv4_address} cat /root/.elastic_password\n\n",
     "Note: Configure routes and pipelines via Cribl UI\n",
     "SSH access restricted to cribladmin user\n\n",
     "======================================"

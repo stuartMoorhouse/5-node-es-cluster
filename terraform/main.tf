@@ -52,13 +52,15 @@ locals {
   validate_spaces = (local.has_frozen_tier && var.spaces_access_id == "") ? tobool("ERROR: Frozen tier requires Spaces credentials. Set spaces_access_id and spaces_secret_key in terraform.tfvars") : true
 }
 
-# Random password for Elasticsearch superuser (elastic)
-# For demo purposes, we only need one password
-resource "random_password" "elastic_password" {
-  length           = 32
-  special          = true
-  override_special = "!#%&*+-=?@^_~" # Exclude problematic characters like $(){}[]<>
-}
+# Password Management:
+# Elasticsearch auto-generates passwords during installation using the elasticsearch-reset-password tool
+# in batch mode. These passwords are stored on the first ES node at:
+# - /root/.elastic_password (for the 'elastic' superuser)
+# - /root/.kibana_system_password (for the 'kibana_system' service account)
+#
+# Terraform does NOT generate or manage these passwords.
+# To retrieve the elastic password after deployment:
+#   ssh root@<es-node-ip> cat /root/.elastic_password
 
 # VPC for cluster isolation
 resource "digitalocean_vpc" "elasticsearch" {
@@ -112,7 +114,7 @@ resource "digitalocean_droplet" "elasticsearch_nodes" {
   provisioner "remote-exec" {
     inline = [
       "chmod +x /tmp/install_elasticsearch.sh",
-      "ES_VERSION='${var.elasticsearch_version}' ELASTIC_PASSWORD='${random_password.elastic_password.result}' CLUSTER_NAME='${local.cluster_name_prefix}' NODE_NUMBER='${each.value.node_number}' TOTAL_MASTERS='${local.total_masters}' MASTER_IPS='${local.master_ips}' IS_FIRST_NODE='${each.key == keys(local.es_nodes_flat)[0] ? "true" : "false"}' PRIVATE_IP='${self.ipv4_address_private}' NODE_ROLES='${join(",", each.value.roles)}' /tmp/install_elasticsearch.sh"
+      "ES_VERSION='${var.elasticsearch_version}' CLUSTER_NAME='${local.cluster_name_prefix}' NODE_NUMBER='${each.value.node_number}' TOTAL_MASTERS='${local.total_masters}' MASTER_IPS='${local.master_ips}' IS_FIRST_NODE='${each.key == keys(local.es_nodes_flat)[0] ? "true" : "false"}' PRIVATE_IP='${self.ipv4_address_private}' NODE_ROLES='${join(",", each.value.roles)}' /tmp/install_elasticsearch.sh"
     ]
   }
 }
