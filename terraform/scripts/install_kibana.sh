@@ -139,9 +139,8 @@ xpack.security.encryptionKey: "$(openssl rand -base64 32)"
 xpack.encryptedSavedObjects.encryptionKey: "$(openssl rand -base64 32)"
 xpack.reporting.encryptionKey: "$(openssl rand -base64 32)"
 
-# Logging
-logging.dest: /var/log/kibana/kibana.log
-logging.verbose: false
+# Logging (Kibana 9.x uses default file logging to /var/log/kibana/)
+# No explicit logging configuration needed - defaults are fine
 
 # Performance
 server.maxPayloadBytes: 1048576
