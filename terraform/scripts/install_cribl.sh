@@ -10,7 +10,9 @@ CRIBL_LEADER_MODE="${cribl_leader_mode}"
 CRIBL_LEADER_URL="${cribl_leader_url}"
 CRIBL_AUTH_TOKEN="${cribl_auth_token}"
 ELASTICSEARCH_URL="${elasticsearch_url}"
-ELASTICSEARCH_PASSWORD="${elasticsearch_password}"
+# ELASTICSEARCH_PASSWORD - Not passed via Terraform
+# Use manual configuration script: /home/cribladmin/configure_elasticsearch_destination.sh
+# Password retrieved from ES master: ssh root@<es-ip> cat /root/.elastic_password
 
 # Logging
 log() {

@@ -26,7 +26,8 @@ resource "digitalocean_droplet" "cribl_stream" {
       cribl_leader_url      = var.cribl_leader_url
       cribl_auth_token      = var.cribl_auth_token
       elasticsearch_url     = "https://${values(digitalocean_droplet.elasticsearch_nodes)[0].ipv4_address_private}:9200"
-      elasticsearch_password = random_password.elastic_password.result
+      # elasticsearch_password removed - use manual configuration script on Cribl node
+      # Password must be retrieved from ES master: ssh root@<es-ip> cat /root/.elastic_password
       dollar                = local.dollar
     }
   )
