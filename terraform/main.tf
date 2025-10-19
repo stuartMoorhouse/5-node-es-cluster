@@ -41,6 +41,9 @@ locals {
   master_nodes = [for k, v in local.es_nodes_flat : v if v.is_master]
   master_ips   = join(",", [for node in local.master_nodes : node.private_ip])
 
+  # Actual master IPs from created droplets (use this for services that need to connect to ES)
+  actual_master_ips = join(",", [for k, v in digitalocean_droplet.elasticsearch_nodes : v.ipv4_address_private if local.es_nodes_flat[k].is_master])
+
   # Total number of master-eligible nodes
   total_masters = length(local.master_nodes)
 

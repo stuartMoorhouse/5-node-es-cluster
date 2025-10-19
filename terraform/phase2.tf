@@ -36,7 +36,7 @@ resource "digitalocean_droplet" "kibana" {
   provisioner "remote-exec" {
     inline = [
       "chmod +x /tmp/install_kibana.sh",
-      "ES_VERSION='${var.elasticsearch_version}' ELASTIC_PASSWORD='${random_password.elastic_password.result}' CLUSTER_NAME='${local.cluster_name_prefix}' MASTER_IPS='${local.master_ips}' DEPLOYMENT_MODE='${var.deployment_mode}' EPR_URL='${var.deployment_mode == "airgapped" ? "http://10.10.10.3:8443" : ""}' ARTIFACT_REGISTRY_URL='${var.deployment_mode == "airgapped" ? "http://10.10.10.2:9080/downloads/" : ""}' /tmp/install_kibana.sh"
+      "ES_VERSION='${var.elasticsearch_version}' ELASTIC_PASSWORD='${random_password.elastic_password.result}' CLUSTER_NAME='${local.cluster_name_prefix}' MASTER_IPS='${local.actual_master_ips}' DEPLOYMENT_MODE='${var.deployment_mode}' EPR_URL='${var.deployment_mode == "airgapped" ? "http://10.10.10.3:8443" : ""}' ARTIFACT_REGISTRY_URL='${var.deployment_mode == "airgapped" ? "http://10.10.10.2:9080/downloads/" : ""}' /tmp/install_kibana.sh"
     ]
   }
 
