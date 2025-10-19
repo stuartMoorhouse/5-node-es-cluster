@@ -10,6 +10,10 @@ set -e
 # MASTER_IPS, IS_FIRST_NODE, MONITOR_PASSWORD, INGEST_PASSWORD, ADMIN_PASSWORD,
 # PRIVATE_IP, NODE_ROLES
 
+# Prevent interactive prompts during package installation
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+
 # Logging
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
@@ -18,6 +22,10 @@ log() {
 log "Starting networked Elasticsearch installation from internet..."
 log "Node type: $NODE_ROLES"
 log "Private IP: $PRIVATE_IP"
+
+# Wait for cloud-init to finish to avoid apt lock conflicts
+log "Waiting for cloud-init to complete..."
+cloud-init status --wait
 
 # Update package lists
 log "Updating package lists..."
@@ -39,9 +47,18 @@ echo "deb [signed-by=/usr/share/keyrings/elasticsearch-keyring.gpg] https://arti
 log "Updating package lists with Elasticsearch repository..."
 apt-get update
 
-# Install Elasticsearch
+# Install Elasticsearch and capture auto-generated password
 log "Installing Elasticsearch version $ES_VERSION..."
-apt-get install -y elasticsearch=$ES_VERSION
+INSTALL_OUTPUT=$(apt-get install -y elasticsearch=$ES_VERSION 2>&1)
+echo "$INSTALL_OUTPUT"
+
+# Extract auto-generated elastic password
+AUTO_ELASTIC_PASSWORD=$(echo "$INSTALL_OUTPUT" | grep -oP 'The generated password for the elastic built-in superuser is : \K\S+' || echo "")
+if [ -n "$AUTO_ELASTIC_PASSWORD" ]; then
+  log "Auto-generated password captured successfully"
+else
+  log "WARNING: Could not extract auto-generated password"
+fi
 
 # Verify Elasticsearch installation
 if ! systemctl list-unit-files | grep -q elasticsearch.service; then
@@ -300,20 +317,44 @@ for i in {1..60}; do
   sleep 5
 done
 
-# Set built-in user passwords on first node
+# Set elastic password on first node using API
 if [[ "$IS_FIRST_NODE" == "true" ]]; then
-  log "Setting up built-in users passwords..."
-  sleep 30  # Wait for cluster to form
+  log "Setting elastic user password via API..."
+  sleep 30  # Wait for cluster to stabilize
 
-  # Set elastic password
-  echo "$ELASTIC_PASSWORD" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic --stdin -b
+  if [ -z "$AUTO_ELASTIC_PASSWORD" ]; then
+    log "ERROR: Auto-generated password not available. Cannot reset password."
+    exit 1
+  fi
 
-  # Set other built-in user passwords
-  echo "$ELASTIC_PASSWORD" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u kibana_system --stdin -b
-  echo "$ELASTIC_PASSWORD" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u logstash_system --stdin -b
-  echo "$ELASTIC_PASSWORD" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u beats_system --stdin -b
-  echo "$ELASTIC_PASSWORD" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u apm_system --stdin -b
-  echo "$ELASTIC_PASSWORD" | /usr/share/elasticsearch/bin/elasticsearch-reset-password -u remote_monitoring_user --stdin -b
+  # Reset elastic password using API
+  cat > /tmp/reset_elastic.json << JSONEOF
+{"password": "${ELASTIC_PASSWORD}"}
+JSONEOF
+
+  log "Using auto-generated password for initial authentication..."
+  curl -k -u "elastic:${AUTO_ELASTIC_PASSWORD}" -X POST "https://localhost:9200/_security/user/elastic/_password" \
+    -H "Content-Type: application/json" \
+    -d @/tmp/reset_elastic.json
+
+  if [ $? -eq 0 ]; then
+    log "Elastic password configured successfully"
+  else
+    log "ERROR: Failed to reset elastic password"
+    rm -f /tmp/reset_elastic.json
+    exit 1
+  fi
+
+  # Set kibana_system password (required for Kibana)
+  cat > /tmp/reset_kibana.json << JSONEOF
+{"password": "${ELASTIC_PASSWORD}"}
+JSONEOF
+
+  curl -k -u "elastic:${ELASTIC_PASSWORD}" -X POST "https://localhost:9200/_security/user/kibana_system/_password" \
+    -H "Content-Type: application/json" \
+    -d @/tmp/reset_kibana.json
+
+  rm -f /tmp/reset_elastic.json /tmp/reset_kibana.json
   log "Built-in user passwords configured"
 fi
 
@@ -507,11 +548,12 @@ SCRIPT
 chmod +x /home/esadmin/setup_rbac.sh
 chown esadmin:esadmin /home/esadmin/setup_rbac.sh
 
-# Run RBAC setup on first node
-if [[ "$IS_FIRST_NODE" == "true" ]]; then
-  log "Setting up RBAC..."
-  sudo -u esadmin /home/esadmin/setup_rbac.sh "$ELASTIC_PASSWORD" "$MONITOR_PASSWORD" "$INGEST_PASSWORD" "$ADMIN_PASSWORD"
-fi
+# Skip RBAC setup for simplified demo - elastic superuser is sufficient
+# if [[ "$IS_FIRST_NODE" == "true" ]]; then
+#   log "Setting up RBAC..."
+#   sudo -u esadmin /home/esadmin/setup_rbac.sh "$ELASTIC_PASSWORD" "$MONITOR_PASSWORD" "$INGEST_PASSWORD" "$ADMIN_PASSWORD"
+# fi
+log "RBAC script created in /home/esadmin/setup_rbac.sh (not executed - elastic superuser is sufficient for demo)"
 
 # Create snapshot repository configuration script
 cat > /home/esadmin/configure_snapshot_repo.sh << 'SCRIPT'

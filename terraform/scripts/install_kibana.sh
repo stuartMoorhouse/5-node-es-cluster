@@ -111,7 +111,7 @@ log "Elasticsearch endpoint: https://${FIRST_ES_IP}:9200"
 log "Configuring Kibana..."
 cat > /etc/kibana/kibana.yml << EOF
 # Server configuration
-server.host: "${PRIVATE_IP}"
+server.host: "0.0.0.0"
 server.port: 5601
 server.name: "kibana-${CLUSTER_NAME}"
 
@@ -121,26 +121,11 @@ elasticsearch.username: "kibana_system"
 elasticsearch.password: "${ELASTIC_PASSWORD}"
 elasticsearch.ssl.verificationMode: none
 
-# Fleet configuration (uses public Elastic Package Registry)
-# Users can configure Fleet through the Kibana UI after installation
-xpack.fleet.outputs:
-  - id: fleet-default-output
-    name: default
-    type: elasticsearch
-    hosts: ["https://${FIRST_ES_IP}:9200"]
-    is_default: true
-    is_default_monitoring: true
-    ssl:
-      verification_mode: none
-
 # Security
 xpack.security.enabled: true
 xpack.security.encryptionKey: "$(openssl rand -base64 32)"
 xpack.encryptedSavedObjects.encryptionKey: "$(openssl rand -base64 32)"
 xpack.reporting.encryptionKey: "$(openssl rand -base64 32)"
-
-# Logging (Kibana 9.x uses default file logging to /var/log/kibana/)
-# No explicit logging configuration needed - defaults are fine
 
 # Performance
 server.maxPayloadBytes: 1048576
@@ -160,6 +145,7 @@ chmod 660 /etc/kibana/kibana.yml
 
 # Enable and start Kibana
 log "Starting Kibana service..."
+systemctl daemon-reload
 systemctl enable kibana
 systemctl start kibana
 
@@ -252,7 +238,8 @@ chown esadmin:esadmin /home/esadmin/configure_fleet.sh
 log "========================================="
 log "Kibana installation complete!"
 log "========================================="
-log "Kibana URL: http://${PRIVATE_IP}:5601"
+log "Kibana listening on: 0.0.0.0:5601 (all interfaces)"
+log "Access via public IP or private IP: ${PRIVATE_IP}:5601"
 log "Username: elastic"
 log "Deployment Mode: ${DEPLOYMENT_MODE}"
 if [[ "${DEPLOYMENT_MODE}" == "airgapped" ]]; then
