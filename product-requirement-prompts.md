@@ -22,7 +22,15 @@ This is to create small PoC self-managed Elasticsearch clusters
 ```
 
 ## Success criteria
-The deployment is an "air-gapped deployment": 
+The deployment supports an "air-gapped mode":
+
+**IMPORTANT NOTE ON "AIR-GAPPED" MODE**:
+The current implementation is a **demonstration/learning setup** that shows how to configure Fleet for air-gapped operation:
+- Installation Phase: All components (Elasticsearch, Kibana, EPR, Artifact Registry) are installed from the internet during deployment
+- Post-Installation: Fleet is configured to use local EPR and Artifact Registry instead of public Elastic services
+- This demonstrates the architecture pattern for air-gapped environments without the complexity of pre-downloading packages
+
+For a TRUE air-gapped deployment (no internet access during installation), packages would need to be pre-downloaded and transferred to the droplets. The current setup focuses on demonstrating local registry usage for Fleet.
 
 Elasticsearch Air-Gapped Deployment Guide
 Overview
